@@ -1,15 +1,29 @@
-import asyncpg
 import os
+import asyncpg
 
-# ---------- Connection ----------
-async def connect():
+POOL = None
+
+async def init_db_pool():
     """
-    Open a connection to Supabase Postgres using SSL.
+    Initialize a global asyncpg connection pool using DATABASE_URL from environment.
+    Example DSN:
+    postgresql://postgres:YOURPASSWORD@db.YOURHOST.supabase.co:5432/postgres
     """
-    return await asyncpg.connect(
-        dsn=os.getenv("DATABASE_URL"),
-        ssl="require"   # enforce SSL without needing a cert file
+    global POOL
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("DATABASE_URL environment variable not set")
+
+    POOL = await asyncpg.create_pool(
+        dsn=dsn,
+        min_size=2,
+        max_size=10,
+        timeout=10,
+        statement_cache_size=0,
+        max_inactive_connection_lifetime=300
     )
+    print("[SQL] Connection pool initialized")
+
 
 # ---------- Queries ----------
 
