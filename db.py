@@ -1,19 +1,14 @@
 import asyncpg
 import os
-import ssl
-
-# Path to the Supabase CA cert inside container/repo
-SSL_CERT_PATH = os.path.join(os.path.dirname(__file__), "prod-ca-2021.crt")
 
 # ---------- Connection ----------
 async def connect():
     """
-    Open a connection to Supabase Postgres using SSL and the provided CA cert.
+    Open a connection to Supabase Postgres using SSL.
     """
-    ssl_ctx = ssl.create_default_context(cafile=SSL_CERT_PATH)
     return await asyncpg.connect(
         dsn=os.getenv("DATABASE_URL"),
-        ssl=ssl_ctx   # pass SSLContext instead of sslrootcert
+        ssl="require"   # enforce SSL without needing a cert file
     )
 
 # ---------- Queries ----------
@@ -47,6 +42,7 @@ async def create_nest(conn, species_id: int, mother_id: int, father_id: int,
     return await conn.fetchval(sql, species_id, mother_id, father_id,
                                coords[0], coords[1], coords[2],
                                server_name, asexual)
+
 
 async def set_nest_message(conn, nest_id: int, channel_id: int, message_id: int):
     """
