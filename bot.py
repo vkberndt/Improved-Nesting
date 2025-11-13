@@ -13,12 +13,23 @@ from typing import Optional
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='/', intents=intents)
+tree = bot.tree
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 RCON_HOST = os.getenv("RCON_HOST")
 RCON_PORT = int(os.getenv("RCON_PORT", "25575"))
 RCON_PASSWORD = os.getenv("RCON_PASSWORD")
 SERVER_NAME = os.getenv("SERVER_NAME", "Anthrax")
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    try:
+        # Sync slash commands globally
+        synced = await tree.sync()
+        print(f"[Slash] Synced {len(synced)} commands globally")
+    except Exception as e:
+        print(f"[Slash] Sync failed: {e}")
 
 # --- Google Sheets Setup ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -208,7 +219,7 @@ async def render_nest_card(conn, nest_id: int):
     return embed, view
 
 # --- Slash command: /setseason (admin only) ---
-@bot.tree.command(name="setseason", description="Set the active season")
+@tree.command(name="setseason", description="Set the active season")
 @app_commands.choices(season=[
     app_commands.Choice(name="Spring", value="Spring"),
     app_commands.Choice(name="Summer", value="Summer"),
@@ -216,78 +227,64 @@ async def render_nest_card(conn, nest_id: int):
     app_commands.Choice(name="Winter", value="Winter"),
 ])
 async def setseason(interaction: discord.Interaction, season: app_commands.Choice[str]):
-    # Permission check
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Only server administrators can set the active season.", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
-    try:
-        async with db.POOL.acquire() as conn:
-            # Flip active flag in one statement (case-insensitive match)
-            await conn.execute("UPDATE seasons SET is_active = (lower(name) = lower($1))", season.value)
-
-            # Fetch the active season to confirm
-            active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
-
-            # Try to write an audit entry if the table exists; ignore errors if it doesn't
-            try:
-                await conn.execute(
-                    "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
-                    interaction.user.id, season.value
-                )
-            except Exception:
-                pass
-
-        if active:
-            await interaction.followup.send(f"Season set to {active['name']}", ephemeral=True)
-        else:
-            await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"Failed to set season: {e}", ephemeral=True)
-
-# --- Commands ---
-@bot.command(name="anthranest")
-async def anthranest(ctx, asexual: bool=False):
     async with db.POOL.acquire() as conn:
-        alderon_id = get_aid_by_discord(ctx.author.id)
+        await conn.execute("UPDATE seasons SET is_active = (lower(name) = lower($1))", season.value)
+        active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
+        try:
+            await conn.execute(
+                "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
+                interaction.user.id, season.value
+            )
+        except Exception:
+            pass
+
+    if active:
+        await interaction.followup.send(f"Season set to {active['name']}", ephemeral=True)
+    else:
+        await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
+
+
+# --- Slash command: /anthranest ---
+@tree.command(name="anthranest", description="Create a nest")
+@app_commands.describe(asexual="Whether the nest is asexual")
+async def anthranest_slash(interaction: discord.Interaction, asexual: bool=False):
+    async with db.POOL.acquire() as conn:
+        alderon_id = get_aid_by_discord(interaction.user.id)
         if not alderon_id:
-            await ctx.send("No Alderon ID registered for you. Please register first.")
+            await interaction.response.send_message("No Alderon ID registered for you. Please register first.", ephemeral=True)
             return
 
         pinfo = await get_playerinfo(alderon_id)
         if not pinfo or not pinfo["species_code"]:
-            await ctx.send("Could not determine your species from RCON.")
+            await interaction.response.send_message("Could not determine your species from RCON.", ephemeral=True)
             return
 
         species_row = await conn.fetchrow("select id, name from species where code=$1", pinfo["species_code"])
         if not species_row:
-            await ctx.send(f"Species {pinfo['species_code']} not recognized in database.")
+            await interaction.response.send_message(f"Species {pinfo['species_code']} not recognized in database.", ephemeral=True)
             return
         species_id = species_row["id"]
 
-        # Seasonal rule check
         rule = await db.get_active_rules(conn, species_id)
-        if not rule:
-            await ctx.send(f"No seasonal rules configured for {species_row['name']} in the active season.")
-            return
-
-        if not rule["can_nest"]:
-            await ctx.send(f"Nesting for {species_row['name']} is disabled this season.")
+        if not rule or not rule["can_nest"]:
+            await interaction.response.send_message(f"Nesting for {species_row['name']} is disabled this season.", ephemeral=True)
             return
 
         max_clutches = rule["max_clutches_per_player"] or 0
         if max_clutches > 0:
-            ok = await db.bump_clutch_counter(conn, ctx.author.id, species_id, max_clutches)
+            ok = await db.bump_clutch_counter(conn, interaction.user.id, species_id, max_clutches)
             if not ok:
-                await ctx.send(f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.")
+                await interaction.response.send_message(f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.", ephemeral=True)
                 return
 
-        # Create nest
-        nest_id = await db.create_nest(conn, ctx.author.id, species_id, None, None,
+        nest_id = await db.create_nest(conn, interaction.user.id, species_id, None, None,
                                        (0,0,0), SERVER_NAME, asexual)
 
-        # Insert eggs if egg_count > 0
         egg_count = rule["egg_count"] or 0
         if egg_count > 0:
             await conn.execute(
@@ -295,106 +292,82 @@ async def anthranest(ctx, asexual: bool=False):
                 nest_id, egg_count
             )
 
-        # Render UX card
-        embed, view = await render_nest_card(conn, nest_id)
-        msg = await ctx.send(embed=embed, view=view)
-        await db.set_nest_message(conn, nest_id, ctx.channel.id, msg.id)
+        embed, _ = await render_nest_card(conn, nest_id)
+        view = NestView(nest_id, interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view)
+        await db.set_nest_message(conn, nest_id, interaction.channel.id, interaction.id)
 
-# --- Button interactions ---
-@bot.event
-async def on_interaction(interaction: discord.Interaction):
-    # Only handle component interactions here; guard against other interaction types
-    if not interaction.data or "component_type" not in interaction.data:
-        return
 
-    if interaction.data["component_type"] == 2:  # button
-        parts = interaction.data["custom_id"].split(":")
-        action = parts[0]
-        nest_id = int(parts[1])
+# --- Button interactions via NestView ---
+class NestView(discord.ui.View):
+    def __init__(self, nest_id: int, creator_id: int):
+        super().__init__(timeout=None)
+        self.nest_id = nest_id
+        self.creator_id = creator_id
 
-        if action == "claim":
-            conn = await db.connect()
-            egg_id = await db.claim_first_egg(conn, nest_id, interaction.user.id)
-            embed, view = await render_nest_card(conn, nest_id)
+    @discord.ui.button(label="🥚 Claim Egg", style=discord.ButtonStyle.primary)
+    async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with db.POOL.acquire() as conn:
+            egg_id = await db.claim_first_egg(conn, self.nest_id, interaction.user.id)
+            embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
-            await conn.close()
 
-        elif action == "unclaim":
-            conn = await db.connect()
-            slot_index = await db.unclaim_egg(conn, nest_id, interaction.user.id)
-            embed, view = await render_nest_card(conn, nest_id)
-            await conn.close()
+    @discord.ui.button(label="❌ Unclaim Egg", style=discord.ButtonStyle.secondary)
+    async def unclaim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with db.POOL.acquire() as conn:
+            slot_index = await db.unclaim_egg(conn, self.nest_id, interaction.user.id)
+            embed, view = await render_nest_card(conn, self.nest_id)
 
-            if slot_index is not None:
-                await interaction.response.edit_message(embed=embed, view=view)
-                await interaction.followup.send(
-                    f"You have released your claim on egg {slot_index}.",
-                    ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(
-                    "You don’t currently have a claimed egg in this nest.",
-                    ephemeral=True
-                )
+        if slot_index is not None:
+            await interaction.response.edit_message(embed=embed, view=view)
+            await interaction.followup.send(f"You released your claim on egg {slot_index}.", ephemeral=True)
+        else:
+            await interaction.response.send_message("You don’t currently have a claimed egg in this nest.", ephemeral=True)
 
-        elif action == "hatch":
-            conn = await db.connect()
-            nest = await conn.fetchrow(
-                "select mother_x, mother_y, mother_z from nests where id=$1", nest_id
-            )
+    @discord.ui.button(label="🐣 Hatch", style=discord.ButtonStyle.success)
+    async def hatch_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async with db.POOL.acquire() as conn:
+            nest = await conn.fetchrow("select mother_x, mother_y, mother_z from nests where id=$1", self.nest_id)
             if not nest:
-                await conn.close()
                 await interaction.response.send_message("Nest not found.", ephemeral=True)
                 return
 
             alderon_id = get_aid_by_discord(interaction.user.id)
             if not alderon_id:
-                await conn.close()
                 await interaction.response.send_message("No Alderon ID registered for you.", ephemeral=True)
                 return
 
-            # Ensure mother coords exist before teleport
-            if nest["mother_x"] is not None and nest["mother_y"] is not None and nest["mother_z"] is not None:
-                # Reset growth and teleport only when coords are valid
+            if nest["mother_x"] is not None:
                 await setattr_growth(alderon_id, 0)
                 await teleport(alderon_id, nest["mother_x"], nest["mother_y"], nest["mother_z"])
+                egg_id = await db.mark_egg_hatched(conn, self.nest_id, interaction.user.id)
             else:
-                await conn.close()
-                await interaction.response.send_message(
-                    "Mother’s nest location has not been set yet. Please have the mother fill in her details.",
-                    ephemeral=True
-                )
+                await interaction.response.send_message("Mother’s nest location has not been set yet.", ephemeral=True)
                 return
 
-            # Mark egg as hatched in DB
-            egg_id = await db.mark_egg_hatched(conn, nest_id, interaction.user.id)
-            await conn.close()
+        if egg_id:
+            await interaction.response.send_message(f"You hatched from egg {egg_id} and were teleported to the nest!", ephemeral=True)
+        else:
+            await interaction.response.send_message("You don’t have a claimed egg in this nest.", ephemeral=True)
 
-            if egg_id:
-                await interaction.response.send_message(
-                    f"You have hatched from egg {egg_id} and been teleported to the nest!",
-                    ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(
-                    "You don’t have a claimed egg in this nest.",
-                    ephemeral=True
-                )
+    @discord.ui.button(label="👩 Mother Details", style=discord.ButtonStyle.secondary)
+    async def mother_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ParentDetailsModal(self.nest_id, role="mother"))
 
-        elif action == "parent":
-            role = parts[2]  # "mother" or "father"
-            await interaction.response.send_modal(ParentDetailsModal(nest_id, role=role))
+    @discord.ui.button(label="👨 Father Details", style=discord.ButtonStyle.secondary)
+    async def father_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ParentDetailsModal(self.nest_id, role="father"))
 
-        elif action == "close":
-            creator_id = int(parts[2])
-            if interaction.user.id != creator_id:
-                await interaction.response.send_message("Only the nest creator can close this nest.", ephemeral=True)
-                return
-            conn = await db.connect()
-            await conn.execute("update nests set status='expired' where id=$1", nest_id)
-            embed, view = await render_nest_card(conn, nest_id)
+    @discord.ui.button(label="❌ Close", style=discord.ButtonStyle.danger)
+    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.creator_id:
+            await interaction.response.send_message("Only the nest creator can close this nest.", ephemeral=True)
+            return
+
+        async with db.POOL.acquire() as conn:
+            await conn.execute("update nests set status='expired' where id=$1", self.nest_id)
+            embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
-            await conn.close()
 
 # --- Background Tasks ---
 async def nest_expiry_task():
