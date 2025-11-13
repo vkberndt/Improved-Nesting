@@ -435,10 +435,6 @@ async def nest_expiry_task():
 # --- Sync commands on ready ---
 @bot.event
 async def on_ready():
-    try:
-        await bot.tree.sync()
-    except Exception:
-        pass
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
 # --- Startup ---
