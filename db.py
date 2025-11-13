@@ -26,6 +26,13 @@ async def init_db_pool():
     )
     print("[SQL] Connection pool initialized")
 
+    # --- Quick diagnostic check ---
+    async with POOL.acquire() as conn:
+        who = await conn.fetchval("select current_user;")
+        db  = await conn.fetchval("select current_database();")
+        path = await conn.fetchval("show search_path;")
+        print(f"[SQL] Connected as role: {who}, database: {db}, search_path: {path}")
+
 
 # ---------- Queries ----------
 
