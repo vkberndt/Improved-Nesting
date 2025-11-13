@@ -99,49 +99,49 @@ class ParentDetailsModal(discord.ui.Modal):
         self.add_item(discord.ui.TextInput(label="Mutations", required=False))
 
     async def on_submit(self, interaction: discord.Interaction):
-        conn = await db.connect()
+        async with db.POOL.acquire() as conn:
+            # Save parent details
+            await conn.execute("""
+                insert into nest_parent_details (
+                  nest_id, parent_role, dino_name, subspecies,
+                  dominant_skin, recessive_skin, immunity_gene,
+                  character_sheet_url, mutations
+                ) values (
+                  $1, $2, $3, $4, $5, $6, $7, $8, $9
+                )
+                on conflict (nest_id, parent_role) do update set
+                  dino_name = excluded.dino_name,
+                  subspecies = excluded.subspecies,
+                  dominant_skin = excluded.dominant_skin,
+                  recessive_skin = excluded.recessive_skin,
+                  immunity_gene = excluded.immunity_gene,
+                  character_sheet_url = excluded.character_sheet_url,
+                  mutations = excluded.mutations
+            """, self.nest_id, self.role,
+                 self.children[0].value,  # Dino Name
+                 self.children[1].value,  # Subspecies
+                 self.children[2].value,  # Dominant Skin
+                 self.children[3].value,  # Recessive Skin
+                 self.children[4].value,  # Immunity Gene
+                 self.children[5].value,  # Character Sheet URL
+                 self.children[6].value)  # Mutations
 
-        # Save parent details
-        await conn.execute("""
-            insert into nest_parent_details (
-              nest_id, parent_role, dino_name, subspecies,
-              dominant_skin, recessive_skin, immunity_gene,
-              character_sheet_url, mutations
-            ) values (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9
-            )
-            on conflict (nest_id, parent_role) do update set
-              dino_name = excluded.dino_name,
-              subspecies = excluded.subspecies,
-              dominant_skin = excluded.dominant_skin,
-              recessive_skin = excluded.recessive_skin,
-              immunity_gene = excluded.immunity_gene,
-              character_sheet_url = excluded.character_sheet_url,
-              mutations = excluded.mutations
-        """, self.nest_id, self.role,
-             self.children[0].value,  # Dino Name
-             self.children[1].value,  # Subspecies
-             self.children[2].value,  # Dominant Skin
-             self.children[3].value,  # Recessive Skin
-             self.children[4].value,  # Immunity Gene
-             self.children[5].value,  # Character Sheet URL
-             self.children[6].value)  # Mutations
+            # If this is the mother, also update nest coords from RCON
+            if self.role == "mother":
+                alderon_id = get_aid_by_discord(interaction.user.id)
+                if alderon_id:
+                    pinfo = await get_playerinfo(alderon_id)
+                    if pinfo and pinfo["coords"]:
+                        x, y, z = pinfo["coords"]
+                        await conn.execute("""
+                            update nests
+                            set mother_x=$1, mother_y=$2, mother_z=$3
+                            where id=$4
+                        """, x, y, z, self.nest_id)
 
-        # If this is the mother, also update nest coords from RCON
-        if self.role == "mother":
-            alderon_id = get_aid_by_discord(interaction.user.id)
-            if alderon_id:
-                pinfo = await get_playerinfo(alderon_id)
-                if pinfo and pinfo["coords"]:
-                    x, y, z = pinfo["coords"]
-                    await conn.execute("""
-                        update nests
-                        set mother_x=$1, mother_y=$2, mother_z=$3
-                        where id=$4
-                    """, x, y, z, self.nest_id)
-
-        await conn.close()
-        await interaction.response.send_message(f"{self.role.capitalize()} details saved!", ephemeral=True)
+        await interaction.response.send_message(
+            f"{self.role.capitalize()} details saved!", ephemeral=True
+        )
 
 # --- UX rendering ---
 async def render_nest_card(conn, nest_id: int):
@@ -222,98 +222,83 @@ async def setseason(interaction: discord.Interaction, season: app_commands.Choic
         return
 
     await interaction.response.defer(ephemeral=True)
-    conn = None
     try:
-        conn = await db.connect()
-        # Flip active flag in one statement (case-insensitive match)
-        await conn.execute("UPDATE seasons SET is_active = (lower(name) = lower($1))", season.value)
+        async with db.POOL.acquire() as conn:
+            # Flip active flag in one statement (case-insensitive match)
+            await conn.execute("UPDATE seasons SET is_active = (lower(name) = lower($1))", season.value)
 
-        # Fetch the active season to confirm
-        active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
+            # Fetch the active season to confirm
+            active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
 
-        # Try to write an audit entry if the table exists; ignore errors if it doesn't
-        try:
-            await conn.execute(
-                "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
-                interaction.user.id, season.value
-            )
-        except Exception:
-            # If the audit table doesn't exist or insert fails, ignore silently
-            pass
-
-        await conn.close()
-        conn = None
+            # Try to write an audit entry if the table exists; ignore errors if it doesn't
+            try:
+                await conn.execute(
+                    "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
+                    interaction.user.id, season.value
+                )
+            except Exception:
+                pass
 
         if active:
             await interaction.followup.send(f"Season set to {active['name']}", ephemeral=True)
         else:
             await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
     except Exception as e:
-        if conn:
-            await conn.close()
         await interaction.followup.send(f"Failed to set season: {e}", ephemeral=True)
 
 # --- Commands ---
 @bot.command(name="anthranest")
 async def anthranest(ctx, asexual: bool=False):
-    conn = await db.connect()
-    alderon_id = get_aid_by_discord(ctx.author.id)
-    if not alderon_id:
-        await ctx.send("No Alderon ID registered for you. Please register first.")
-        await conn.close()
-        return
-
-    pinfo = await get_playerinfo(alderon_id)
-    if not pinfo or not pinfo["species_code"]:
-        await ctx.send("Could not determine your species from RCON.")
-        await conn.close()
-        return
-
-    species_row = await conn.fetchrow("select id, name from species where code=$1", pinfo["species_code"])
-    if not species_row:
-        await ctx.send(f"Species {pinfo['species_code']} not recognized in database.")
-        await conn.close()
-        return
-    species_id = species_row["id"]
-
-    # Seasonal rule check
-    rule = await db.get_active_rules(conn, species_id)
-    if not rule:
-        await ctx.send(f"No seasonal rules configured for {species_row['name']} in the active season.")
-        await conn.close()
-        return
-
-    if not rule["can_nest"]:
-        await ctx.send(f"Nesting for {species_row['name']} is disabled this season.")
-        await conn.close()
-        return
-
-    max_clutches = rule["max_clutches_per_player"] or 0
-    if max_clutches > 0:
-        ok = await db.bump_clutch_counter(conn, ctx.author.id, species_id, max_clutches)
-        if not ok:
-            await ctx.send(f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.")
-            await conn.close()
+    async with db.POOL.acquire() as conn:
+        alderon_id = get_aid_by_discord(ctx.author.id)
+        if not alderon_id:
+            await ctx.send("No Alderon ID registered for you. Please register first.")
             return
 
-    # Create nest
-    nest_id = await db.create_nest(conn, ctx.author.id, species_id, None, None,
-                                   (0,0,0), SERVER_NAME, asexual)
+        pinfo = await get_playerinfo(alderon_id)
+        if not pinfo or not pinfo["species_code"]:
+            await ctx.send("Could not determine your species from RCON.")
+            return
 
-    # Insert eggs if egg_count > 0
-    egg_count = rule["egg_count"] or 0
-    if egg_count > 0:
-        await conn.execute(
-            "insert into eggs (nest_id, slot_index) select $1, generate_series(1, $2)",
-            nest_id, egg_count
-        )
+        species_row = await conn.fetchrow("select id, name from species where code=$1", pinfo["species_code"])
+        if not species_row:
+            await ctx.send(f"Species {pinfo['species_code']} not recognized in database.")
+            return
+        species_id = species_row["id"]
 
-    # Render UX card
-    embed, view = await render_nest_card(conn, nest_id)
-    msg = await ctx.send(embed=embed, view=view)
-    await db.set_nest_message(conn, nest_id, ctx.channel.id, msg.id)
+        # Seasonal rule check
+        rule = await db.get_active_rules(conn, species_id)
+        if not rule:
+            await ctx.send(f"No seasonal rules configured for {species_row['name']} in the active season.")
+            return
 
-    await conn.close()
+        if not rule["can_nest"]:
+            await ctx.send(f"Nesting for {species_row['name']} is disabled this season.")
+            return
+
+        max_clutches = rule["max_clutches_per_player"] or 0
+        if max_clutches > 0:
+            ok = await db.bump_clutch_counter(conn, ctx.author.id, species_id, max_clutches)
+            if not ok:
+                await ctx.send(f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.")
+                return
+
+        # Create nest
+        nest_id = await db.create_nest(conn, ctx.author.id, species_id, None, None,
+                                       (0,0,0), SERVER_NAME, asexual)
+
+        # Insert eggs if egg_count > 0
+        egg_count = rule["egg_count"] or 0
+        if egg_count > 0:
+            await conn.execute(
+                "insert into eggs (nest_id, slot_index) select $1, generate_series(1, $2)",
+                nest_id, egg_count
+            )
+
+        # Render UX card
+        embed, view = await render_nest_card(conn, nest_id)
+        msg = await ctx.send(embed=embed, view=view)
+        await db.set_nest_message(conn, nest_id, ctx.channel.id, msg.id)
 
 # --- Button interactions ---
 @bot.event
@@ -424,7 +409,6 @@ async def nest_expiry_task():
                         if channel:
                             msg = await channel.fetch_message(row["discord_message_id"])
                             embed, view = await render_nest_card(conn, row["id"])
-                            # Disable all buttons
                             for item in view.children:
                                 item.disabled = True
                             await msg.edit(embed=embed, view=view)
@@ -432,7 +416,7 @@ async def nest_expiry_task():
                         print(f"[Expiry] Failed to update nest {row['id']}: {e}")
         except Exception as e:
             print(f"[Expiry] Task loop error: {e}")
-        await asyncio.sleep(60)  # check every minute
+        await asyncio.sleep(60)
 
 # --- Sync commands on ready ---
 @bot.event
