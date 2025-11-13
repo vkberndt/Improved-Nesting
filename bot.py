@@ -395,8 +395,20 @@ async def nest_expiry_task():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+
+    # Initialize DB pool
     await db.init_db_pool()
+
+    # Start expiry loop
     bot.loop.create_task(nest_expiry_task())
+
+    # Sync slash commands to server for instant availability
+    GUILD_ID = 1374722200053088306
+    try:
+        synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"[Slash] Synced {len(synced)} commands to guild {GUILD_ID}")
+    except Exception as e:
+        print(f"[Slash] Sync failed: {e}")
 
 # --- Startup ---
 bot.run(DISCORD_TOKEN)
