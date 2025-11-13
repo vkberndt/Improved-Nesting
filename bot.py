@@ -438,7 +438,7 @@ async def nest_expiry_task():
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-
+    await db.init_db_pool()
     bot.loop.create_task(nest_expiry_task())
 
 # --- Startup ---
