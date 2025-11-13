@@ -415,21 +415,23 @@ async def on_interaction(interaction: discord.Interaction):
 async def nest_expiry_task():
     await bot.wait_until_ready()
     while not bot.is_closed():
-        conn = await db.connect()
-        expired = await db.expire_nests(conn)
-        for row in expired:
-            try:
-                channel = bot.get_channel(row["discord_channel_id"])
-                if channel:
-                    msg = await channel.fetch_message(row["discord_message_id"])
-                    embed, view = await render_nest_card(conn, row["id"])
-                    # Disable all buttons
-                    for item in view.children:
-                        item.disabled = True
-                    await msg.edit(embed=embed, view=view)
-            except Exception as e:
-                print(f"[Expiry] Failed to update nest {row['id']}: {e}")
-        await conn.close()
+        try:
+            async with db.POOL.acquire() as conn:
+                expired = await db.expire_nests(conn)
+                for row in expired:
+                    try:
+                        channel = bot.get_channel(row["discord_channel_id"])
+                        if channel:
+                            msg = await channel.fetch_message(row["discord_message_id"])
+                            embed, view = await render_nest_card(conn, row["id"])
+                            # Disable all buttons
+                            for item in view.children:
+                                item.disabled = True
+                            await msg.edit(embed=embed, view=view)
+                    except Exception as e:
+                        print(f"[Expiry] Failed to update nest {row['id']}: {e}")
+        except Exception as e:
+            print(f"[Expiry] Task loop error: {e}")
         await asyncio.sleep(60)  # check every minute
 
 # --- Sync commands on ready ---
