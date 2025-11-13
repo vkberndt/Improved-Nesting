@@ -1,7 +1,7 @@
 import asyncpg
 import os
 
-# Path to the Supabase CA cert inside your container/repo
+# Path to the Supabase CA cert inside container/repo
 SSL_CERT_PATH = os.path.join(os.path.dirname(__file__), "prod-ca-2021.crt")
 
 # ---------- Connection ----------
