@@ -437,6 +437,7 @@ async def nest_expiry_task():
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
+    bot.loop.create_task(nest_expiry_task())
+
 # --- Startup ---
-bot.loop.create_task(nest_expiry_task())
 bot.run(DISCORD_TOKEN)
