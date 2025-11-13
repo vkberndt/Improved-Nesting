@@ -10,9 +10,9 @@ async def init_db_pool():
     postgresql://postgres:YOURPASSWORD@db.YOURHOST.supabase.co:5432/postgres
     """
     global POOL
-    dsn = os.environ.get("DATABASE_URL")
+    dsn = os.environ.get("DATABASE_URL") or os.environ.get("DB_DSN")
     if not dsn:
-        raise RuntimeError("DATABASE_URL environment variable not set")
+        raise RuntimeError("DATABASE_URL or DB_DSN environment variable not set")
 
     POOL = await asyncpg.create_pool(
         dsn=dsn,
@@ -20,7 +20,9 @@ async def init_db_pool():
         max_size=10,
         timeout=10,
         statement_cache_size=0,
-        max_inactive_connection_lifetime=300
+        max_inactive_connection_lifetime=300,
+        # 👇 Force schema search path
+        server_settings={"search_path": "public"}
     )
     print("[SQL] Connection pool initialized")
 
