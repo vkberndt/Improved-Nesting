@@ -21,16 +21,6 @@ RCON_PORT = int(os.getenv("RCON_PORT", "25575"))
 RCON_PASSWORD = os.getenv("RCON_PASSWORD")
 SERVER_NAME = os.getenv("SERVER_NAME", "Anthrax")
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    try:
-        # Sync slash commands globally
-        synced = await tree.sync()
-        print(f"[Slash] Synced {len(synced)} commands globally")
-    except Exception as e:
-        print(f"[Slash] Sync failed: {e}")
-
 # --- Google Sheets Setup ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
