@@ -1,5 +1,6 @@
 import asyncpg
 import os
+import ssl
 
 # Path to the Supabase CA cert inside container/repo
 SSL_CERT_PATH = os.path.join(os.path.dirname(__file__), "prod-ca-2021.crt")
@@ -9,10 +10,10 @@ async def connect():
     """
     Open a connection to Supabase Postgres using SSL and the provided CA cert.
     """
+    ssl_ctx = ssl.create_default_context(cafile=SSL_CERT_PATH)
     return await asyncpg.connect(
         dsn=os.getenv("DATABASE_URL"),
-        ssl="require",              # enforce SSL
-        sslrootcert=SSL_CERT_PATH   # path to Supabase CA cert
+        ssl=ssl_ctx   # pass SSLContext instead of sslrootcert
     )
 
 # ---------- Queries ----------
@@ -53,8 +54,8 @@ async def set_nest_message(conn, nest_id: int, channel_id: int, message_id: int)
     """
     sql = "update nests set discord_channel_id=$2, discord_message_id=$3 where id=$1"
     await conn.execute(sql, nest_id, channel_id, message_id)
-    
-    
+
+
 async def expire_nests(conn):
     """
     Mark all nests past expires_at as expired.
@@ -86,7 +87,8 @@ async def claim_first_egg(conn, nest_id: int, player_id: int):
     returning id
     """
     return await conn.fetchval(sql, nest_id, player_id)
-    
+
+
 async def unclaim_egg(conn, nest_id: int, player_id: int):
     # Find the egg claimed by this player in this nest
     row = await conn.fetchrow("""
