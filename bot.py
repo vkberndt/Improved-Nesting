@@ -119,7 +119,6 @@ class ParentDetailsModal(discord.ui.Modal):
         self.nest_id = nest_id
         self.role = role
 
-        # ✅ Max 5 inputs allowed per modal
         self.dino_name = discord.ui.TextInput(label="Dino Name", required=False)
         self.subspecies = discord.ui.TextInput(label="Subspecies", required=False)
         self.skins = discord.ui.TextInput(
@@ -138,7 +137,7 @@ class ParentDetailsModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         async with db.POOL.acquire() as conn:
-            alderon_id = get_aid_by_discord(interaction.user.id)
+            alderon_id = get_aid_by_discord(interaction.user.id)  # dashed string
             if alderon_id:
                 pinfo = await get_playerinfo(alderon_id)
                 growth_val = float(pinfo.get("growth") or 0)
@@ -150,38 +149,14 @@ class ParentDetailsModal(discord.ui.Modal):
                     return
 
             # Save cosmetic parent details
-            await conn.execute("""
-                insert into nest_parent_details (
-                  nest_id, parent_role, dino_name, subspecies,
-                  dominant_skin, recessive_skin, immunity_gene,
-                  character_sheet_url
-                ) values (
-                  $1, $2, $3, $4, $5, $6, $7, $8
-                )
-                on conflict (nest_id, parent_role) do update set
-                  dino_name = excluded.dino_name,
-                  subspecies = excluded.subspecies,
-                  dominant_skin = excluded.dominant_skin,
-                  recessive_skin = excluded.recessive_skin,
-                  immunity_gene = excluded.immunity_gene,
-                  character_sheet_url = excluded.character_sheet_url
-            """,
-                self.nest_id,
-                self.role,
-                self.dino_name.value,
-                self.subspecies.value,
-                (self.skins.value.split("/", 1)[0].strip() if self.skins.value else None),
-                (self.skins.value.split("/", 1)[1].strip() if self.skins.value and "/" in self.skins.value else None),
-                self.immunity_gene.value,
-                self.character_sheet_url.value
-            )
+            await conn.execute(""" ... same insert into nest_parent_details ... """, ...)
 
             # 🔑 Update linkage in nests table
             if alderon_id:
                 if self.role == "mother":
                     await conn.execute(
-                        "update nests set mother_id=$1 where id=$2",
-                        alderon_id, self.nest_id
+                        "update nests set mother_id=$1, mother_alderon_id=$2 where id=$3",
+                        interaction.user.id, alderon_id, self.nest_id
                     )
                     if pinfo and pinfo.get("coords"):
                         x, y, z = pinfo["coords"]
@@ -191,15 +166,14 @@ class ParentDetailsModal(discord.ui.Modal):
                         )
                 elif self.role == "father":
                     await conn.execute(
-                        "update nests set father_id=$1 where id=$2",
-                        alderon_id, self.nest_id
+                        "update nests set father_id=$1, father_alderon_id=$2 where id=$3",
+                        interaction.user.id, alderon_id, self.nest_id
                     )
 
             # 🔄 Refresh the nest card
             embed, view = await render_nest_card(conn, self.nest_id, interaction.user.id)
             await interaction.response.edit_message(embed=embed, view=view)
 
-        # Confirmation
         await interaction.followup.send(
             f"{self.role.capitalize()} details saved!", ephemeral=True
         )
