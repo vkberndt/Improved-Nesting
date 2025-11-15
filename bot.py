@@ -545,14 +545,24 @@ class NestView(discord.ui.View):
                 await interaction.response.send_message("No Alderon ID registered for you.", ephemeral=True)
                 return
 
-            # ✅ Ensure all three coordinates are present
+            # Ensure coords are present
             if nest["mother_x"] is not None and nest["mother_y"] is not None and nest["mother_z"] is not None:
+                x = float(nest["mother_x"])
+                y = float(nest["mother_y"])
+                z = float(nest["mother_z"])
+
                 # Reset growth to hatchling
                 await setattr_growth(alderon_id, 0)
+
                 # Teleport to mother’s nest coordinates
-                await teleport(alderon_id, nest["mother_x"], nest["mother_y"], nest["mother_z"])
-                # Mark egg as hatched in DB
-                egg_id = await db.mark_egg_hatched(conn, self.nest_id, interaction.user.id)
+                resp = await teleport(alderon_id, x, y, z)
+                print(f"[DEBUG] Teleport response: {resp}")
+
+                # Just check if the user has a claimed egg for messaging
+                egg_id = await conn.fetchval(
+                    "select id from eggs where nest_id=$1 and claimed_by_player_id=$2",
+                    self.nest_id, interaction.user.id
+                )
             else:
                 await interaction.response.send_message(
                     "Mother’s nest location has not been set yet.",
@@ -560,10 +570,10 @@ class NestView(discord.ui.View):
                 )
                 return
 
-        # ✅ Respond to player
+        # Respond to player
         if egg_id:
             await interaction.response.send_message(
-                f"🐣 You hatched from egg {egg_id} and were teleported to the nest!",
+                f"🐣 You hatched from an egg and were teleported to the nest!",
                 ephemeral=True
             )
         else:
