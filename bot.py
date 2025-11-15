@@ -312,32 +312,39 @@ async def setseason(interaction: discord.Interaction, season: app_commands.Choic
 
     await interaction.response.defer(ephemeral=True)
     async with db.POOL.acquire() as conn:
-        # Ensure only one active season
+        # 🔒 Ensure only one active season
         await conn.execute("UPDATE seasons SET is_active = false")
-        await conn.execute("UPDATE seasons SET is_active = true WHERE lower(name) = lower($1)", season.value)
+        await conn.execute(
+            "UPDATE seasons SET is_active = true WHERE lower(name) = lower($1)",
+            season.value
+        )
 
-        active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
+        active = await conn.fetchrow(
+            "SELECT id, name FROM seasons WHERE is_active = true LIMIT 1"
+        )
 
-        # Reset clutch counters for new season
-        if active:
-            await conn.execute("""
-                UPDATE player_season_species_stats
-                SET clutches_started = 0
-                WHERE season_id = $1
-            """, active["id"])
+        # 🧹 Clean out all old stats for a fresh season
+        await conn.execute("DELETE FROM player_season_species_stats")
 
+        # 📜 Log the season change with timestamp
         try:
             await conn.execute(
-                "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
+                "INSERT INTO season_changes (changed_by, season_name, changed_at) VALUES ($1, $2, now())",
                 interaction.user.id, season.value
             )
         except Exception:
             pass
 
     if active:
-        await interaction.followup.send(f"Season set to {active['name']}", ephemeral=True)
+        await interaction.followup.send(
+            f"Season set to {active['name']} — all clutch stats reset. Change logged at {active['name']} season start.",
+            ephemeral=True
+        )
     else:
-        await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
+        await interaction.followup.send(
+            f"No season named {season.value} found",
+            ephemeral=True
+        )
 
 # --- Slash command: /anthranest ---
 @tree.command(name="anthranest", description="Create a nest")
