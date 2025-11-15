@@ -183,7 +183,6 @@ class ParentDetailsModal(discord.ui.Modal):
                         "update nests set mother_id=$1 where id=$2",
                         alderon_id, self.nest_id
                     )
-                    # Also update coords if available
                     if pinfo and pinfo.get("coords"):
                         x, y, z = pinfo["coords"]
                         await conn.execute(
@@ -196,12 +195,12 @@ class ParentDetailsModal(discord.ui.Modal):
                         alderon_id, self.nest_id
                     )
 
-            # 🔄 Refresh the nest card so everyone sees updated parent info
-            embed, view = await render_nest_card(conn, self.nest_id)
-            await interaction.message.edit(embed=embed, view=view)
+            # 🔄 Refresh the nest card
+            embed, view = await render_nest_card(conn, self.nest_id, interaction.user.id)
+            await interaction.response.edit_message(embed=embed, view=view)
 
-        # Private confirmation for the submitting player
-        await interaction.response.send_message(
+        # Confirmation
+        await interaction.followup.send(
             f"{self.role.capitalize()} details saved!", ephemeral=True
         )
 
@@ -490,7 +489,6 @@ class NestView(discord.ui.View):
             try:
                 egg_id = await db.claim_first_egg(conn, self.nest_id, interaction.user.id)
             except ValueError as e:
-                # Father not registered yet
                 await interaction.response.send_message(str(e), ephemeral=True)
                 return
 
@@ -501,8 +499,7 @@ class NestView(discord.ui.View):
                 )
                 return
 
-            # Refresh embed after claim
-            embed, view = await render_nest_card(conn, self.nest_id)
+            embed, view = await render_nest_card(conn, self.nest_id, self.creator_id)
             await interaction.response.edit_message(embed=embed, view=view)
             await interaction.followup.send(f"🥚 You successfully claimed egg #{egg_id}!", ephemeral=True)
 
@@ -510,7 +507,7 @@ class NestView(discord.ui.View):
     async def unclaim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with db.POOL.acquire() as conn:
             slot_index = await db.unclaim_egg(conn, self.nest_id, interaction.user.id)
-            embed, view = await render_nest_card(conn, self.nest_id)
+            embed, view = await render_nest_card(conn, self.nest_id, self.creator_id)
 
         if slot_index is not None:
             await interaction.response.edit_message(embed=embed, view=view)
@@ -560,7 +557,6 @@ class NestView(discord.ui.View):
     @discord.ui.button(label="👨 Father Details", style=discord.ButtonStyle.secondary)
     async def father_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ParentDetailsModal(self.nest_id, role="father"))
-        # Optional: confirm father registration after modal submission in ParentDetailsModal
 
     @discord.ui.button(label="❌ Close", style=discord.ButtonStyle.danger)
     async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -573,7 +569,7 @@ class NestView(discord.ui.View):
 
         async with db.POOL.acquire() as conn:
             await conn.execute("update nests set status='expired' where id=$1", self.nest_id)
-            embed, view = await render_nest_card(conn, self.nest_id)
+            embed, view = await render_nest_card(conn, self.nest_id, self.creator_id)
             await interaction.response.edit_message(embed=embed, view=view)
             await interaction.followup.send("Nest has been closed.", ephemeral=True)
 # --- Background Tasks ---
