@@ -131,15 +131,14 @@ async def setattr_growth(aid: str, growth_value: float):
         return None
 
 
-async def teleport(aid: str, x: float, y: float, z: float):
+async def teleport(aid: str, x, y, z):
     """
-    Run /teleport (X=<x>,Y=<y>,Z=<z>) to move a player to given coordinates.
-    Note: this server's syntax does NOT include the AID.
+    Run /teleport (X=<x>,Y=<y>,Z=<z>) with full precision.
     """
     try:
         client = RCONClient()
         await client.connect()
-        # Format exactly as required
+        # Use str() to preserve exact numeric precision
         cmd = f"/teleport (X={x},Y={y},Z={z})"
         resp = await client.command(cmd)
         await client.close()
@@ -512,7 +511,7 @@ class NestView(discord.ui.View):
             # 🔄 Refresh embed after claim
             embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
-            await interaction.followup.send(f"🥚 You successfully claimed egg #{egg_id}!", ephemeral=True)
+            await interaction.followup.send(f"🥚 You successfully claimed an egg!", ephemeral=True)
 
     @discord.ui.button(label="❌ Unclaim Egg", style=discord.ButtonStyle.secondary)
     async def unclaim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -548,9 +547,10 @@ class NestView(discord.ui.View):
 
             # Ensure coords are present
             if nest["mother_x"] is not None and nest["mother_y"] is not None and nest["mother_z"] is not None:
-                x = float(nest["mother_x"])
-                y = float(nest["mother_y"])
-                z = float(nest["mother_z"])
+                # Use str() to preserve full precision from the DB
+                x = str(nest["mother_x"])
+                y = str(nest["mother_y"])
+                z = str(nest["mother_z"])
 
                 # Reset growth to hatchling
                 await setattr_growth(alderon_id, 0)
