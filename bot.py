@@ -530,7 +530,11 @@ class NestView(discord.ui.View):
     @discord.ui.button(label="🐣 Hatch", style=discord.ButtonStyle.success)
     async def hatch_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with db.POOL.acquire() as conn:
-            nest = await conn.fetchrow("select mother_x, mother_y, mother_z from nests where id=$1", self.nest_id)
+            # Pull mother’s nest coordinates
+            nest = await conn.fetchrow(
+                "select mother_x, mother_y, mother_z from nests where id=$1",
+                self.nest_id
+            )
             if not nest:
                 await interaction.response.send_message("Nest not found.", ephemeral=True)
                 return
@@ -540,14 +544,22 @@ class NestView(discord.ui.View):
                 await interaction.response.send_message("No Alderon ID registered for you.", ephemeral=True)
                 return
 
-            if nest["mother_x"] is not None:
+            # ✅ Ensure all three coordinates are present
+            if nest["mother_x"] is not None and nest["mother_y"] is not None and nest["mother_z"] is not None:
+                # Reset growth to hatchling
                 await setattr_growth(alderon_id, 0)
+                # Teleport to mother’s nest coordinates
                 await teleport(alderon_id, nest["mother_x"], nest["mother_y"], nest["mother_z"])
+                # Mark egg as hatched in DB
                 egg_id = await db.mark_egg_hatched(conn, self.nest_id, interaction.user.id)
             else:
-                await interaction.response.send_message("Mother’s nest location has not been set yet.", ephemeral=True)
+                await interaction.response.send_message(
+                    "Mother’s nest location has not been set yet.",
+                    ephemeral=True
+                )
                 return
 
+        # ✅ Respond to player
         if egg_id:
             await interaction.response.send_message(
                 f"🐣 You hatched from egg {egg_id} and were teleported to the nest!",
