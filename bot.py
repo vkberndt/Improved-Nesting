@@ -112,73 +112,98 @@ async def get_playerinfo(aid: str):
         "raw": resp_clean,
     }
 
-async def on_submit(self, interaction: discord.Interaction):
-    async with db.POOL.acquire() as conn:
-        alderon_id = get_aid_by_discord(interaction.user.id)
-        if alderon_id:
-            pinfo = await get_playerinfo(alderon_id)
-            growth_val = float(pinfo.get("growth") or 0)
-            if growth_val < 0.75:
-                await interaction.response.send_message(
-                    "❌ You must be at least Sub Adult (Growth ≥ 0.75) to parent a nest.",
-                    ephemeral=True
-                )
-                return
+# --- Parent Details Modal (Mother/Father Info) ---
+class ParentDetailsModal(discord.ui.Modal):
+    def __init__(self, nest_id: int, role: str):
+        super().__init__(title=f"{role.capitalize()} Details")
+        self.nest_id = nest_id
+        self.role = role
 
-        # Save cosmetic parent details
-        await conn.execute("""
-            insert into nest_parent_details (
-              nest_id, parent_role, dino_name, subspecies,
-              dominant_skin, recessive_skin, immunity_gene,
-              character_sheet_url
-            ) values (
-              $1, $2, $3, $4, $5, $6, $7, $8
-            )
-            on conflict (nest_id, parent_role) do update set
-              dino_name = excluded.dino_name,
-              subspecies = excluded.subspecies,
-              dominant_skin = excluded.dominant_skin,
-              recessive_skin = excluded.recessive_skin,
-              immunity_gene = excluded.immunity_gene,
-              character_sheet_url = excluded.character_sheet_url
-        """,
-            self.nest_id,
-            self.role,
-            self.dino_name.value,
-            self.subspecies.value,
-            (self.skins.value.split("/", 1)[0].strip() if self.skins.value else None),
-            (self.skins.value.split("/", 1)[1].strip() if self.skins.value and "/" in self.skins.value else None),
-            self.immunity_gene.value,
-            self.character_sheet_url.value
+        # ✅ Max 5 inputs allowed per modal
+        self.dino_name = discord.ui.TextInput(label="Dino Name", required=False)
+        self.subspecies = discord.ui.TextInput(label="Subspecies", required=False)
+        self.skins = discord.ui.TextInput(
+            label="Skins (Dominant / Recessive)",
+            required=False,
+            placeholder="Dominant / Recessive"
         )
+        self.immunity_gene = discord.ui.TextInput(label="Immunity Gene", required=False)
+        self.character_sheet_url = discord.ui.TextInput(label="Character Sheet URL", required=False)
 
-        # 🔑 Update linkage in nests table
-        if alderon_id:
-            if self.role == "mother":
-                await conn.execute(
-                    "update nests set mother_id=$1 where id=$2",
-                    alderon_id, self.nest_id
-                )
-                # Also update coords if available
-                if pinfo and pinfo.get("coords"):
-                    x, y, z = pinfo["coords"]
-                    await conn.execute(
-                        "update nests set mother_x=$1, mother_y=$2, mother_z=$3 where id=$4",
-                        x, y, z, self.nest_id
+        self.add_item(self.dino_name)
+        self.add_item(self.subspecies)
+        self.add_item(self.skins)
+        self.add_item(self.immunity_gene)
+        self.add_item(self.character_sheet_url)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        async with db.POOL.acquire() as conn:
+            alderon_id = get_aid_by_discord(interaction.user.id)
+            if alderon_id:
+                pinfo = await get_playerinfo(alderon_id)
+                growth_val = float(pinfo.get("growth") or 0)
+                if growth_val < 0.75:
+                    await interaction.response.send_message(
+                        "❌ You must be at least Sub Adult (Growth ≥ 0.75) to parent a nest.",
+                        ephemeral=True
                     )
-            elif self.role == "father":
-                await conn.execute(
-                    "update nests set father_id=$1 where id=$2",
-                    alderon_id, self.nest_id
+                    return
+
+            # Save cosmetic parent details
+            await conn.execute("""
+                insert into nest_parent_details (
+                  nest_id, parent_role, dino_name, subspecies,
+                  dominant_skin, recessive_skin, immunity_gene,
+                  character_sheet_url
+                ) values (
+                  $1, $2, $3, $4, $5, $6, $7, $8
                 )
+                on conflict (nest_id, parent_role) do update set
+                  dino_name = excluded.dino_name,
+                  subspecies = excluded.subspecies,
+                  dominant_skin = excluded.dominant_skin,
+                  recessive_skin = excluded.recessive_skin,
+                  immunity_gene = excluded.immunity_gene,
+                  character_sheet_url = excluded.character_sheet_url
+            """,
+                self.nest_id,
+                self.role,
+                self.dino_name.value,
+                self.subspecies.value,
+                (self.skins.value.split("/", 1)[0].strip() if self.skins.value else None),
+                (self.skins.value.split("/", 1)[1].strip() if self.skins.value and "/" in self.skins.value else None),
+                self.immunity_gene.value,
+                self.character_sheet_url.value
+            )
 
-        # 🔄 Refresh the nest card
-        embed, view = await render_nest_card(conn, self.nest_id)
-        await interaction.message.edit(embed=embed, view=view)
+            # 🔑 Update linkage in nests table
+            if alderon_id:
+                if self.role == "mother":
+                    await conn.execute(
+                        "update nests set mother_id=$1 where id=$2",
+                        alderon_id, self.nest_id
+                    )
+                    # Also update coords if available
+                    if pinfo and pinfo.get("coords"):
+                        x, y, z = pinfo["coords"]
+                        await conn.execute(
+                            "update nests set mother_x=$1, mother_y=$2, mother_z=$3 where id=$4",
+                            x, y, z, self.nest_id
+                        )
+                elif self.role == "father":
+                    await conn.execute(
+                        "update nests set father_id=$1 where id=$2",
+                        alderon_id, self.nest_id
+                    )
 
-    await interaction.response.send_message(
-        f"{self.role.capitalize()} details saved!", ephemeral=True
-    )
+            # 🔄 Refresh the nest card so everyone sees updated parent info
+            embed, view = await render_nest_card(conn, self.nest_id)
+            await interaction.message.edit(embed=embed, view=view)
+
+        # Private confirmation for the submitting player
+        await interaction.response.send_message(
+            f"{self.role.capitalize()} details saved!", ephemeral=True
+        )
 
 # --- UX rendering ---
 async def render_nest_card(conn, nest_id: int):
