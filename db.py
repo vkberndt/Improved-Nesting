@@ -85,7 +85,8 @@ async def create_nest(
     coords: tuple,
     server_name: str,
     asexual: bool,
-    image_url: str | None = None
+    image_url: str | None = None,
+    additional_info: str | None = None
 ):
     """
     Insert a new nest row and return its id.
@@ -95,18 +96,19 @@ async def create_nest(
         insert into nests (
             season_id, species_id, mother_id, father_id,
             created_by_player_id, mother_x, mother_y, mother_z,
-            server_name, asexual, image_url, created_at, expires_at, status
+            server_name, asexual, image_url, additional_info,
+            created_at, expires_at, status
         )
         values (
             (select season_id from active_season),
-            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
             now(), now() + interval '30 minutes', 'open'
         )
         returning id
     """,
         species_id, mother_id, father_id, creator_id,
         x, y, z,
-        server_name, asexual, image_url
+        server_name, asexual, image_url, additional_info
     )
     return nest_id
 
@@ -233,7 +235,8 @@ async def start_nest_transaction(
     server_name: str,
     asexual: bool,
     max_clutches: int,
-    image_url: str | None = None
+    image_url: str | None = None,
+    additional_info: str | None = None
 ):
     """
     Atomically bump clutch counter and create a nest.
@@ -254,6 +257,7 @@ async def start_nest_transaction(
             coords,
             server_name,
             asexual,
-            image_url
+            image_url,
+            additional_info
         )
         return nest_id

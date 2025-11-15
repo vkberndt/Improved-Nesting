@@ -350,12 +350,14 @@ async def setseason(interaction: discord.Interaction, season: app_commands.Choic
 @tree.command(name="anthranest", description="Create a nest")
 @app_commands.describe(
     asexual="Whether the nest is asexual",
-    image_url="Optional custom image URL for the nest card"
+    image_url="Optional custom image URL for the nest card",
+    additional_info="Optional player-written blurb to include in the nest post"
 )
 async def anthranest_slash(
     interaction: discord.Interaction,
     asexual: bool = False,
-    image_url: str | None = None
+    image_url: str | None = None,
+    additional_info: str | None = None
 ):
     async with db.POOL.acquire() as conn:
         alderon_id = get_aid_by_discord(interaction.user.id)
@@ -406,13 +408,13 @@ async def anthranest_slash(
 
         max_clutches = rule["max_clutches_per_player"] or 0
 
-        # ✅ Use RCON coords if available, fallback to (0,0,0)
+        # Use RCON coords if available, fallback to (0,0,0)
         coords = pinfo["coords"] if pinfo.get("coords") else (0, 0, 0)
 
-        # ✅ Choose nest image: player-provided or species default
+        # Choose nest image: player-provided or species default
         chosen_image = image_url.strip() if image_url else species_row["image_url"]
 
-        # 🔒 Transaction-safe clutch + nest creation
+        # Transaction-safe clutch + nest creation
         nest_id = await db.start_nest_transaction(
             conn,
             interaction.user.id,   # player_id
@@ -424,7 +426,8 @@ async def anthranest_slash(
             SERVER_NAME,
             asexual,
             max_clutches,
-            chosen_image           # pass image into nest record
+            chosen_image,          # pass image into nest record
+            additional_info        # pass player blurb into nest record
         )
 
         if nest_id is None:
@@ -442,6 +445,10 @@ async def anthranest_slash(
             )
 
         embed, _ = await render_nest_card(conn, nest_id)
+        # Append player blurb if present
+        if additional_info:
+            embed.add_field(name="Player Note", value=additional_info, inline=False)
+
         view = NestView(nest_id, interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view)
         await db.set_nest_message(conn, nest_id, interaction.channel.id, interaction.id)
