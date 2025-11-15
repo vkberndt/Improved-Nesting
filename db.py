@@ -205,11 +205,19 @@ async def mark_egg_hatched(conn, nest_id: int, player_id: int):
     """
     return await conn.fetchval(sql, nest_id, player_id)
     
-async def start_nest_transaction(conn, player_id: int, species_id: int,
-                                 mother_id: int, father_id: int,
-                                 creator_id: int, coords: tuple,
-                                 server_name: str, asexual: bool,
-                                 max_clutches: int):
+async def start_nest_transaction(
+    conn,
+    player_id: int,
+    species_id: int,
+    mother_id: int,
+    father_id: int,
+    creator_id: int,
+    coords: tuple,
+    server_name: str,
+    asexual: bool,
+    max_clutches: int,
+    image_url: str | None = None
+):
     """
     Atomically bump clutch counter and create a nest.
     Rolls back if nest creation fails, so clutch counter only increments on success.
@@ -220,6 +228,15 @@ async def start_nest_transaction(conn, player_id: int, species_id: int,
         if not ok:
             return None  # cap reached, no increment
 
-        nest_id = await create_nest(conn, species_id, mother_id, father_id,
-                                    creator_id, coords, server_name, asexual)
+        nest_id = await create_nest(
+            conn,
+            species_id,
+            mother_id,
+            father_id,
+            creator_id,
+            coords,
+            server_name,
+            asexual,
+            image_url  # pass through to create_nest
+        )
         return nest_id
