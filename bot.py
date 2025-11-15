@@ -199,135 +199,6 @@ async def render_nest_card(conn, nest_id: int):
     nest = await conn.fetchrow("""
         select n.id, n.status, n.expires_at, n.server_name,
                n.created_by_player_id,
-               sp.name as species_name, sp.image_url,
-               s.name as season_name
-        from nests n
-        join species sp on sp.id = n.species_id
-        join seasons s on s.id = n.season_id
-        where n.id = $1
-    """, nest_id)
-
-    eggs = await conn.fetch("""
-        select slot_index, claimed_by_player_id
-        from eggs
-        where nest_id = $1
-        order by slot_index
-    """, nest_id)
-
-    claimants = [f"<@{row['claimed_by_player_id']}>" for row in eggs if row['claimed_by_player_id']]
-
-    embed = discord.Embed(
-        title=f"{nest['species_name']} Nest",
-        description=f"Season: {nest['season_name']}\nStatus: {nest['status'].upper()}",
-        color=discord.Color.green() if nest['status'] == "open" else discord.Color.red()
-    )
-    embed.add_field(
-        name="Eggs Available",
-        value=str(sum(1 for e in eggs if not e['claimed_by_player_id'])),
-        inline=True
-    )
-    embed.add_field(
-        name="Claimants",
-        value=", ".join(claimants) if claimants else "None yet",
-        inline=True
-    )
-    embed.set_footer(text=f"Server: {nest['server_name']} | Expires {nest['expires_at']}")
-
-    # 👇 Species image or fallback
-    if nest["image_url"]:
-        clean_url = nest["image_url"].strip()  # ensure no hidden spaces/newlines
-        embed.set_image(url=clean_url)         # full-width image below description
-    else:
-        embed.add_field(name="Image", value="No image available", inline=False)
-
-    # Parent details
-    details = await conn.fetch("""
-        select parent_role, dino_name, subspecies, dominant_skin, recessive_skin,
-               immunity_gene, character_sheet_url
-        from nest_parent_details
-        where nest_id = $1
-    """, nest_id)
-    for row in details:
-        block = (
-            f"**Name:** {row['dino_name'] or '—'}\n"
-            f"**Subspecies:** {row['subspecies'] or '—'}\n"
-            f"**Skins:** {row['dominant_skin'] or '—'} / {row['recessive_skin'] or '—'}\n"
-            f"**Immunity:** {row['immunity_gene'] or '—'}\n"
-        )
-        if row['character_sheet_url']:
-            block += f"\n[Character Sheet]({row['character_sheet_url']})"
-        embed.add_field(
-            name=f"{row['parent_role'].capitalize()} Details",
-            value=block,
-            inline=False
-        )
-
-    # Buttons
-    view = discord.ui.View()
-    view.add_item(discord.ui.Button(
-        label="🥚 Claim Egg",
-        style=discord.ButtonStyle.primary,
-        custom_id=f"claim:{nest_id}"
-    ))
-    view.add_item(discord.ui.Button(
-        label="👩 Mother Details",
-        style=discord.ButtonStyle.secondary,
-        custom_id=f"parent:{nest_id}:mother"
-    ))
-    view.add_item(discord.ui.Button(
-        label="👨 Father Details",
-        style=discord.ButtonStyle.secondary,
-        custom_id=f"parent:{nest_id}:father"
-    ))
-    view.add_item(discord.ui.Button(
-        label="🐣 Hatch",
-        style=discord.ButtonStyle.success,
-        custom_id=f"hatch:{nest_id}"
-    ))
-    view.add_item(discord.ui.Button(
-        label="❌ Close",
-        style=discord.ButtonStyle.danger,
-        custom_id=f"close:{nest_id}:{nest['created_by_player_id']}"
-    ))
-
-    return embed, view
-
-# --- Slash command: /setseason (admin only) ---
-@tree.command(name="setseason", description="Set the active season")
-@app_commands.choices(season=[
-    app_commands.Choice(name="Spring", value="Spring"),
-    app_commands.Choice(name="Summer", value="Summer"),
-    app_commands.Choice(name="Autumn", value="Autumn"),
-    app_commands.Choice(name="Winter", value="Winter"),
-])
-async def setseason(interaction: discord.Interaction, season: app_commands.Choice[str]):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Only server administrators can set the active season.", ephemeral=True)
-        return
-
-    await interaction.response.defer(ephemeral=True)
-    async with db.POOL.acquire() as conn:
-        await conn.execute("UPDATE seasons SET is_active = (lower(name) = lower($1))", season.value)
-        active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
-        try:
-            await conn.execute(
-                "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
-                interaction.user.id, season.value
-            )
-        except Exception:
-            pass
-
-    if active:
-        await interaction.followup.send(f"Season set to {active['name']}", ephemeral=True)
-    else:
-        await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
-
-
-# --- UX rendering ---
-async def render_nest_card(conn, nest_id: int):
-    nest = await conn.fetchrow("""
-        select n.id, n.status, n.expires_at, n.server_name,
-               n.created_by_player_id,
                sp.name as species_name, sp.image_url as species_image_url,
                n.image_url as nest_image_url,
                s.name as season_name
@@ -421,6 +292,136 @@ async def render_nest_card(conn, nest_id: int):
     ))
 
     return embed, view
+
+# --- Slash command: /setseason (admin only) ---
+@tree.command(name="setseason", description="Set the active season")
+@app_commands.choices(season=[
+    app_commands.Choice(name="Spring", value="Spring"),
+    app_commands.Choice(name="Summer", value="Summer"),
+    app_commands.Choice(name="Autumn", value="Autumn"),
+    app_commands.Choice(name="Winter", value="Winter"),
+])
+async def setseason(interaction: discord.Interaction, season: app_commands.Choice[str]):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Only server administrators can set the active season.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    async with db.POOL.acquire() as conn:
+        await conn.execute("UPDATE seasons SET is_active = (lower(name) = lower($1))", season.value)
+        active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
+        try:
+            await conn.execute(
+                "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
+                interaction.user.id, season.value
+            )
+        except Exception:
+            pass
+
+    if active:
+        await interaction.followup.send(f"Season set to {active['name']}", ephemeral=True)
+    else:
+        await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
+
+
+# --- Slash command: /anthranest ---
+@tree.command(name="anthranest", description="Create a nest")
+@app_commands.describe(
+    asexual="Whether the nest is asexual",
+    image_url="Optional custom image URL for the nest card"
+)
+async def anthranest_slash(
+    interaction: discord.Interaction,
+    asexual: bool = False,
+    image_url: str | None = None
+):
+    async with db.POOL.acquire() as conn:
+        alderon_id = get_aid_by_discord(interaction.user.id)
+        if not alderon_id:
+            await interaction.response.send_message(
+                "No Alderon ID registered for you. Please register first.",
+                ephemeral=True
+            )
+            return
+
+        # ✅ Pull species + coords from RCON
+        pinfo = await get_playerinfo(alderon_id)
+        if not pinfo or not pinfo.get("species_code"):
+            await interaction.response.send_message(
+                "Could not determine your species from RCON.",
+                ephemeral=True
+            )
+            return
+
+        # 🔒 Growth requirement check
+        if pinfo.get("growth", 0) < 0.75:
+            await interaction.response.send_message(
+                "❌ You must have Growth ≥ 0.75 to create a nest.",
+                ephemeral=True
+            )
+            return
+
+        species_row = await conn.fetchrow(
+            "select id, name, image_url from species where code=$1",
+            pinfo["species_code"]
+        )
+        if not species_row:
+            await interaction.response.send_message(
+                f"Species {pinfo['species_code']} not recognized in database.",
+                ephemeral=True
+            )
+            return
+        species_id = species_row["id"]
+
+        rule = await db.get_active_rules(conn, species_id)
+        if not rule or not rule["can_nest"]:
+            await interaction.response.send_message(
+                f"Nesting for {species_row['name']} is disabled this season.",
+                ephemeral=True
+            )
+            return
+
+        max_clutches = rule["max_clutches_per_player"] or 0
+
+        # ✅ Use RCON coords if available, fallback to (0,0,0)
+        coords = pinfo["coords"] if pinfo.get("coords") else (0, 0, 0)
+
+        # ✅ Choose nest image: player-provided or species default
+        chosen_image = image_url.strip() if image_url else species_row["image_url"]
+
+        # 🔒 Transaction-safe clutch + nest creation
+        nest_id = await db.start_nest_transaction(
+            conn,
+            interaction.user.id,   # player_id
+            species_id,
+            interaction.user.id,   # mother_id always = invoking player
+            None if asexual else None,  # father_id stays None for now
+            interaction.user.id,   # creator_id
+            coords,
+            SERVER_NAME,
+            asexual,
+            max_clutches,
+            chosen_image           # pass image into nest record
+        )
+
+        if nest_id is None:
+            await interaction.response.send_message(
+                f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.",
+                ephemeral=True
+            )
+            return
+
+        egg_count = rule["egg_count"] or 0
+        if egg_count > 0:
+            await conn.execute(
+                "insert into eggs (nest_id, slot_index) select $1, generate_series(1, $2)",
+                nest_id, egg_count
+            )
+
+        embed, _ = await render_nest_card(conn, nest_id)
+        view = NestView(nest_id, interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view)
+        await db.set_nest_message(conn, nest_id, interaction.channel.id, interaction.id)
         
 # --- Button interactions via NestView ---
 class NestView(discord.ui.View):
