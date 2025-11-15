@@ -45,7 +45,14 @@ async def bulk_sync_players(conn, sheet_rows: list[dict]):
     Each row should have at least 'discord_id' and 'aid' (Alderon ID).
     """
     for row in sheet_rows:
-        discord_id = int(row["discord_id"])
+        raw_id = row["discord_id"].strip()
+
+        # Defensive cleanup: remove commas and decimals if present
+        clean_id = raw_id.replace(",", "")
+        if "." in clean_id:
+            clean_id = clean_id.split(".")[0]
+
+        discord_id = int(clean_id)
         alderon_id = row.get("aid")
 
         await conn.execute("""
