@@ -46,19 +46,15 @@ async def bulk_sync_players(conn, sheet_rows: list[dict]):
     """
     for row in sheet_rows:
         discord_id = int(row["discord_id"])
-        aid = row.get("aid")
+        alderon_id = row.get("aid")
 
         await conn.execute("""
-            insert into players (id, aid)
-            values ($1, $2)
-            on conflict (id) do update set aid = excluded.aid
-        """, discord_id, aid)
-
-        await conn.execute("""
-            insert into players (id, aid)
-            values ($1, $2)
-            on conflict (id) do update set aid = excluded.aid
-        """, discord_id, aid)
+            insert into players (id, discord_user_id, alderon_id)
+            values ($1, $2, $3)
+            on conflict (id) do update
+              set discord_user_id = excluded.discord_user_id,
+                  alderon_id = excluded.alderon_id
+        """, discord_id, str(discord_id), alderon_id)
 
 async def get_active_rules(conn, species_id: int):
     """
