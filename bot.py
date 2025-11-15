@@ -47,6 +47,20 @@ def get_aid_by_discord(discord_id: int) -> Optional[str]:
             return aid.strip()
     return None
 
+def load_google_sheet() -> list[dict]:
+    """Load all rows from the sheet into a list of dicts for bulk sync."""
+    col_discord = aid_map_ws.col_values(1)  # Discord ID column
+    col_aid = aid_map_ws.col_values(3)      # Alderon ID column
+
+    rows = []
+    for d_id, aid in zip(col_discord, col_aid):
+        if d_id.strip() and aid.strip():
+            rows.append({
+                "discord_id": d_id.strip(),
+                "aid": aid.strip()
+            })
+    return rows
+
 # --- RCON helpers ---
 from rcon import RCONClient
 
@@ -432,6 +446,12 @@ async def on_ready():
     # Initialize DB pool and expiry task
     await db.init_db_pool()
     bot.loop.create_task(nest_expiry_task())
+
+    # Bulk sync players from Google Sheet into DB
+    sheet_rows = await load_google_sheet()  # your existing sheet fetch
+    async with db.pool.acquire() as conn:
+        await db.bulk_sync_players(conn, sheet_rows)
+    print(f"[Startup] Synced {len(sheet_rows)} players from Google Sheet into DB")
 
     # Sync slash commands to your guild
     GUILD_ID = 1374722200053088306

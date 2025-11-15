@@ -40,6 +40,21 @@ async def init_db_pool():
 
 # ---------- Queries ----------
 
+async def bulk_sync_players(conn, sheet_rows: list[dict]):
+    """
+    Bulk sync players from cached Google Sheet into the players table.
+    Each row should have at least 'discord_id' and 'aid'.
+    """
+    for row in sheet_rows:
+        discord_id = int(row["discord_id"])
+        aid = row.get("aid")
+
+        await conn.execute("""
+            insert into players (id, aid)
+            values ($1, $2)
+            on conflict (id) do update set aid = excluded.aid
+        """, discord_id, aid)
+
 async def get_active_rules(conn, species_id: int):
     """
     Return egg_count, max_clutches_per_player, and can_nest for the active season/species.
