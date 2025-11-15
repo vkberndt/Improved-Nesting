@@ -448,8 +448,8 @@ async def on_ready():
     bot.loop.create_task(nest_expiry_task())
 
     # Bulk sync players from Google Sheet into DB
-    sheet_rows = load_google_sheet()  # synchronous call
-    async with db.pool.acquire() as conn:
+    sheet_rows = load_google_sheet()
+    async with db.POOL.acquire() as conn:   # <-- use POOL here
         await db.bulk_sync_players(conn, sheet_rows)
     print(f"[Startup] Synced {len(sheet_rows)} players from Google Sheet into DB")
 
