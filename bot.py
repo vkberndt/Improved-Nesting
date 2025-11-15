@@ -319,8 +319,8 @@ async def anthranest_slash(interaction: discord.Interaction, asexual: bool=False
             conn,
             interaction.user.id,   # player_id
             species_id,
-            None,                  # mother_id
-            None,                  # father_id
+            interaction.user.id,   # mother_id always = invoking player
+            None if asexual else None,  # father_id stays None for now
             interaction.user.id,   # creator_id
             coords,
             SERVER_NAME,
