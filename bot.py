@@ -138,13 +138,14 @@ class ParentDetailsModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         async with db.POOL.acquire() as conn:
-            # Growth requirement check
+            # 🔒 Growth requirement check (cast to float)
             alderon_id = get_aid_by_discord(interaction.user.id)
             if alderon_id:
                 pinfo = await get_playerinfo(alderon_id)
-                if not pinfo or pinfo.get("growth", 0) < 0.75:
+                growth_val = float(pinfo.get("growth") or 0)
+                if growth_val < 0.75:
                     await interaction.response.send_message(
-                        "❌ You must be at least Sub Adult to parent a nest",
+                        "❌ You must be at least Sub Adult (Growth ≥ 0.75) to parent a nest.",
                         ephemeral=True
                     )
                     return
@@ -353,10 +354,11 @@ async def anthranest_slash(
             )
             return
 
-        # 🔒 Growth requirement check
-        if pinfo.get("growth", 0) < 0.75:
+        # 🔒 Growth requirement check (cast to float)
+        growth_val = float(pinfo.get("growth") or 0)
+        if growth_val < 0.75:
             await interaction.response.send_message(
-                "❌ You must have Growth ≥ 0.75 to create a nest.",
+                "❌ You must be Sub Adult or above to create a nest.",
                 ephemeral=True
             )
             return
