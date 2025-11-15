@@ -304,13 +304,28 @@ async def render_nest_card(conn, nest_id: int):
 ])
 async def setseason(interaction: discord.Interaction, season: app_commands.Choice[str]):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Only server administrators can set the active season.", ephemeral=True)
+        await interaction.response.send_message(
+            "Only server administrators can set the active season.",
+            ephemeral=True
+        )
         return
 
     await interaction.response.defer(ephemeral=True)
     async with db.POOL.acquire() as conn:
-        await conn.execute("UPDATE seasons SET is_active = (lower(name) = lower($1))", season.value)
+        # Ensure only one active season
+        await conn.execute("UPDATE seasons SET is_active = false")
+        await conn.execute("UPDATE seasons SET is_active = true WHERE lower(name) = lower($1)", season.value)
+
         active = await conn.fetchrow("SELECT id, name FROM seasons WHERE is_active = true LIMIT 1")
+
+        # Reset clutch counters for new season
+        if active:
+            await conn.execute("""
+                UPDATE player_season_species_stats
+                SET clutches_started = 0
+                WHERE season_id = $1
+            """, active["id"])
+
         try:
             await conn.execute(
                 "INSERT INTO season_changes (changed_by, season_name) VALUES ($1, $2)",
@@ -323,7 +338,6 @@ async def setseason(interaction: discord.Interaction, season: app_commands.Choic
         await interaction.followup.send(f"Season set to {active['name']}", ephemeral=True)
     else:
         await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
-
 
 # --- Slash command: /anthranest ---
 @tree.command(name="anthranest", description="Create a nest")
