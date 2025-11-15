@@ -119,6 +119,7 @@ class ParentDetailsModal(discord.ui.Modal):
         self.nest_id = nest_id
         self.role = role
 
+        # ✅ Max 5 inputs allowed per modal
         self.dino_name = discord.ui.TextInput(label="Dino Name", required=False)
         self.subspecies = discord.ui.TextInput(label="Subspecies", required=False)
         self.skins = discord.ui.TextInput(
@@ -149,7 +150,31 @@ class ParentDetailsModal(discord.ui.Modal):
                     return
 
             # Save cosmetic parent details
-            await conn.execute(""" ... same insert into nest_parent_details ... """, ...)
+            await conn.execute("""
+                insert into nest_parent_details (
+                  nest_id, parent_role, dino_name, subspecies,
+                  dominant_skin, recessive_skin, immunity_gene,
+                  character_sheet_url
+                ) values (
+                  $1, $2, $3, $4, $5, $6, $7, $8
+                )
+                on conflict (nest_id, parent_role) do update set
+                  dino_name = excluded.dino_name,
+                  subspecies = excluded.subspecies,
+                  dominant_skin = excluded.dominant_skin,
+                  recessive_skin = excluded.recessive_skin,
+                  immunity_gene = excluded.immunity_gene,
+                  character_sheet_url = excluded.character_sheet_url
+            """,
+                self.nest_id,
+                self.role,
+                self.dino_name.value,
+                self.subspecies.value,
+                (self.skins.value.split("/", 1)[0].strip() if self.skins.value else None),
+                (self.skins.value.split("/", 1)[1].strip() if self.skins.value and "/" in self.skins.value else None),
+                self.immunity_gene.value,
+                self.character_sheet_url.value
+            )
 
             # 🔑 Update linkage in nests table
             if alderon_id:
@@ -546,6 +571,7 @@ class NestView(discord.ui.View):
             embed, view = await render_nest_card(conn, self.nest_id, self.creator_id)
             await interaction.response.edit_message(embed=embed, view=view)
             await interaction.followup.send("Nest has been closed.", ephemeral=True)
+
 # --- Background Tasks ---
 async def nest_expiry_task():
     await bot.wait_until_ready()
