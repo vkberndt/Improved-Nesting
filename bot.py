@@ -196,7 +196,7 @@ class ParentDetailsModal(discord.ui.Modal):
                     )
 
             # 🔄 Refresh the nest card
-            embed, view = await render_nest_card(conn, self.nest_id, interaction.user.id)
+            embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
 
         await interaction.followup.send(
