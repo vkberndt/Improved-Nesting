@@ -351,13 +351,15 @@ async def setseason(interaction: discord.Interaction, season: app_commands.Choic
 @app_commands.describe(
     asexual="Whether the nest is asexual",
     image_url="Optional custom image URL for the nest card",
-    additional_info="Optional player-written blurb to include in the nest post"
+    additional_info="Optional player-written blurb to include in the nest post",
+    egg_count_override="Optional egg count (must be less than the species max)"
 )
 async def anthranest_slash(
     interaction: discord.Interaction,
     asexual: bool = False,
     image_url: str | None = None,
-    additional_info: str | None = None
+    additional_info: str | None = None,
+    egg_count_override: int | None = None
 ):
     async with db.POOL.acquire() as conn:
         alderon_id = get_aid_by_discord(interaction.user.id)
@@ -368,7 +370,7 @@ async def anthranest_slash(
             )
             return
 
-        # ✅ Pull species + coords from RCON
+        # Pull species + coords from RCON
         pinfo = await get_playerinfo(alderon_id)
         if not pinfo or not pinfo.get("species_code"):
             await interaction.response.send_message(
@@ -377,7 +379,7 @@ async def anthranest_slash(
             )
             return
 
-        # 🔒 Growth requirement check (cast to float)
+        # Growth requirement check (cast to float)
         growth_val = float(pinfo.get("growth") or 0)
         if growth_val < 0.75:
             await interaction.response.send_message(
@@ -407,6 +409,19 @@ async def anthranest_slash(
             return
 
         max_clutches = rule["max_clutches_per_player"] or 0
+        default_egg_count = rule["egg_count"] or 0
+
+        # Validate optional override
+        if egg_count_override is not None:
+            if egg_count_override <= 0 or egg_count_override >= default_egg_count:
+                await interaction.response.send_message(
+                    f"❌ Egg count override must be greater than 0 and less than the normal maximum ({default_egg_count}).",
+                    ephemeral=True
+                )
+                return
+            egg_count = egg_count_override
+        else:
+            egg_count = default_egg_count
 
         # Use RCON coords if available, fallback to (0,0,0)
         coords = pinfo["coords"] if pinfo.get("coords") else (0, 0, 0)
@@ -437,7 +452,6 @@ async def anthranest_slash(
             )
             return
 
-        egg_count = rule["egg_count"] or 0
         if egg_count > 0:
             await conn.execute(
                 "insert into eggs (nest_id, slot_index) select $1, generate_series(1, $2)",
