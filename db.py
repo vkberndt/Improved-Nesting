@@ -76,22 +76,39 @@ async def get_active_rules(conn, species_id: int):
     return await conn.fetchrow(sql, species_id)
 
 
-async def create_nest(conn, species_id: int, mother_id: int, father_id: int,
-                      creator_id: int, coords: tuple, server_name: str, asexual: bool):
+async def create_nest(
+    conn,
+    species_id: int,
+    mother_id: int,
+    father_id: int,
+    creator_id: int,
+    coords: tuple,
+    server_name: str,
+    asexual: bool,
+    image_url: str | None = None
+):
     """
-    Create a nest record and return its ID.
+    Insert a new nest row and return its id.
     """
-    sql = """
-    insert into nests (season_id, species_id, mother_id, father_id,
-                       created_by_player_id, mother_x, mother_y, mother_z,
-                       server_name, asexual, created_at, expires_at, status)
-    values ((select season_id from active_season), $1, $2, $3,
-            $4, $5, $6, $7, $8, $9, now(), now() + interval '30 minutes', 'open')
-    returning id
-    """
-    return await conn.fetchval(sql, species_id, mother_id, father_id,
-                               creator_id, coords[0], coords[1], coords[2],
-                               server_name, asexual)
+    x, y, z = coords
+    nest_id = await conn.fetchval("""
+        insert into nests (
+            season_id, species_id, mother_id, father_id,
+            created_by_player_id, mother_x, mother_y, mother_z,
+            server_name, asexual, image_url, created_at, expires_at, status
+        )
+        values (
+            (select season_id from active_season),
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+            now(), now() + interval '30 minutes', 'open'
+        )
+        returning id
+    """,
+        species_id, mother_id, father_id, creator_id,
+        x, y, z,
+        server_name, asexual, image_url
+    )
+    return nest_id
 
 
 async def set_nest_message(conn, nest_id: int, channel_id: int, message_id: int):
