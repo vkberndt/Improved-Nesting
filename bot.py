@@ -272,34 +272,8 @@ async def render_nest_card(conn, nest_id: int):
             inline=False
         )
 
-    # Buttons
-    view = discord.ui.View()
-    view.add_item(discord.ui.Button(
-        label="🥚 Claim Egg",
-        style=discord.ButtonStyle.primary,
-        custom_id=f"claim:{nest_id}"
-    ))
-    view.add_item(discord.ui.Button(
-        label="👩 Mother Details",
-        style=discord.ButtonStyle.secondary,
-        custom_id=f"parent:{nest_id}:mother"
-    ))
-    view.add_item(discord.ui.Button(
-        label="👨 Father Details",
-        style=discord.ButtonStyle.secondary,
-        custom_id=f"parent:{nest_id}:father"
-    ))
-    view.add_item(discord.ui.Button(
-        label="🐣 Hatch",
-        style=discord.ButtonStyle.success,
-        custom_id=f"hatch:{nest_id}"
-    ))
-    view.add_item(discord.ui.Button(
-        label="❌ Close",
-        style=discord.ButtonStyle.danger,
-        custom_id=f"close:{nest_id}:{nest['created_by_player_id']}"
-    ))
-
+    # ✅ Always return NestView with correct creator_id
+    view = NestView(nest_id, nest["created_by_player_id"])
     return embed, view
 
 # --- Slash command: /setseason (admin only) ---
