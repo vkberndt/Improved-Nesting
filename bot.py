@@ -472,7 +472,8 @@ class NestView(discord.ui.View):
                 )
                 return
 
-            embed, view = await render_nest_card(conn, self.nest_id, self.creator_id)
+            # 🔄 Refresh embed after claim
+            embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
             await interaction.followup.send(f"🥚 You successfully claimed egg #{egg_id}!", ephemeral=True)
 
