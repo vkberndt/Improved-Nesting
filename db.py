@@ -42,7 +42,7 @@ async def init_db_pool():
 async def bulk_sync_players(conn, sheet_rows: list[dict]):
     """
     Bulk sync players from cached Google Sheet into the players table.
-    Each row should have at least 'discord_id' and 'aid'.
+    Each row should have at least 'discord_id' and 'aid' (Alderon ID).
     """
     for row in sheet_rows:
         discord_id = int(row["discord_id"])
@@ -51,9 +51,9 @@ async def bulk_sync_players(conn, sheet_rows: list[dict]):
         await conn.execute("""
             insert into players (id, discord_user_id, alderon_id)
             values ($1, $2, $3)
-            on conflict (id) do update
-              set discord_user_id = excluded.discord_user_id,
-                  alderon_id = excluded.alderon_id
+            on conflict (alderon_id) do update
+              set id = excluded.id,
+                  discord_user_id = excluded.discord_user_id
         """, discord_id, str(discord_id), alderon_id)
 
 async def get_active_rules(conn, species_id: int):
