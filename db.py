@@ -2,7 +2,8 @@ import os
 import asyncpg
 import ssl
 
-POOL = None
+# Global connection pool
+POOL: asyncpg.Pool | None = None
 
 async def init_db_pool():
     """
@@ -48,6 +49,12 @@ async def bulk_sync_players(conn, sheet_rows: list[dict]):
     for row in sheet_rows:
         discord_id = int(row["discord_id"])
         aid = row.get("aid")
+
+        await conn.execute("""
+            insert into players (id, aid)
+            values ($1, $2)
+            on conflict (id) do update set aid = excluded.aid
+        """, discord_id, aid)
 
         await conn.execute("""
             insert into players (id, aid)
