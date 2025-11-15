@@ -63,6 +63,7 @@ def load_google_sheet() -> list[dict]:
     return rows
 
 # --- RCON helpers ---
+import re
 from rcon import RCONClient
 
 async def get_playerinfo(aid: str):
@@ -111,6 +112,40 @@ async def get_playerinfo(aid: str):
         "coords": coords,
         "raw": resp_clean,
     }
+
+
+async def setattr_growth(aid: str, growth_value: float):
+    """
+    Run /setattr <AID> growth <value> to set a player's growth.
+    """
+    try:
+        client = RCONClient()
+        await client.connect()
+        cmd = f"/setattr {aid} growth {growth_value}"
+        resp = await client.command(cmd)
+        await client.close()
+        print(f"[RCON] {cmd} -> {resp}")
+        return resp
+    except Exception as e:
+        print("[RCON] Error in setattr_growth:", e)
+        return None
+
+
+async def teleport(aid: str, x: float, y: float, z: float):
+    """
+    Run /teleport <AID> <X> <Y> <Z> to move a player to given coordinates.
+    """
+    try:
+        client = RCONClient()
+        await client.connect()
+        cmd = f"/teleport {aid} {x} {y} {z}"
+        resp = await client.command(cmd)
+        await client.close()
+        print(f"[RCON] {cmd} -> {resp}")
+        return resp
+    except Exception as e:
+        print("[RCON] Error in teleport:", e)
+        return None
 
 # --- Parent Details Modal (Mother/Father Info) ---
 class ParentDetailsModal(discord.ui.Modal):
@@ -481,7 +516,7 @@ class NestView(discord.ui.View):
     async def unclaim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with db.POOL.acquire() as conn:
             slot_index = await db.unclaim_egg(conn, self.nest_id, interaction.user.id)
-            embed, view = await render_nest_card(conn, self.nest_id, self.creator_id)
+            embed, view = await render_nest_card(conn, self.nest_id)
 
         if slot_index is not None:
             await interaction.response.edit_message(embed=embed, view=view)
@@ -543,7 +578,7 @@ class NestView(discord.ui.View):
 
         async with db.POOL.acquire() as conn:
             await conn.execute("update nests set status='expired' where id=$1", self.nest_id)
-            embed, view = await render_nest_card(conn, self.nest_id, self.creator_id)
+            embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
             await interaction.followup.send("Nest has been closed.", ephemeral=True)
 
