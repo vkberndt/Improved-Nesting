@@ -246,34 +246,63 @@ async def anthranest_slash(interaction: discord.Interaction, asexual: bool=False
     async with db.POOL.acquire() as conn:
         alderon_id = get_aid_by_discord(interaction.user.id)
         if not alderon_id:
-            await interaction.response.send_message("No Alderon ID registered for you. Please register first.", ephemeral=True)
+            await interaction.response.send_message(
+                "No Alderon ID registered for you. Please register first.",
+                ephemeral=True
+            )
             return
 
+        # ✅ Pull species + coords from RCON
         pinfo = await get_playerinfo(alderon_id)
         if not pinfo or not pinfo["species_code"]:
-            await interaction.response.send_message("Could not determine your species from RCON.", ephemeral=True)
+            await interaction.response.send_message(
+                "Could not determine your species from RCON.",
+                ephemeral=True
+            )
             return
 
-        species_row = await conn.fetchrow("select id, name from species where code=$1", pinfo["species_code"])
+        species_row = await conn.fetchrow(
+            "select id, name from species where code=$1", pinfo["species_code"]
+        )
         if not species_row:
-            await interaction.response.send_message(f"Species {pinfo['species_code']} not recognized in database.", ephemeral=True)
+            await interaction.response.send_message(
+                f"Species {pinfo['species_code']} not recognized in database.",
+                ephemeral=True
+            )
             return
         species_id = species_row["id"]
 
         rule = await db.get_active_rules(conn, species_id)
         if not rule or not rule["can_nest"]:
-            await interaction.response.send_message(f"Nesting for {species_row['name']} is disabled this season.", ephemeral=True)
+            await interaction.response.send_message(
+                f"Nesting for {species_row['name']} is disabled this season.",
+                ephemeral=True
+            )
             return
 
         max_clutches = rule["max_clutches_per_player"] or 0
         if max_clutches > 0:
             ok = await db.bump_clutch_counter(conn, interaction.user.id, species_id, max_clutches)
             if not ok:
-                await interaction.response.send_message(f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.", ephemeral=True)
+                await interaction.response.send_message(
+                    f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.",
+                    ephemeral=True
+                )
                 return
 
-        nest_id = await db.create_nest(conn, interaction.user.id, species_id, None, None,
-                                       (0,0,0), SERVER_NAME, asexual)
+        # ✅ Use RCON coords if available, fallback to (0,0,0)
+        coords = pinfo["coords"] if pinfo.get("coords") else (0, 0, 0)
+
+        nest_id = await db.create_nest(
+            conn,
+            interaction.user.id,
+            species_id,
+            None,
+            None,
+            coords,
+            SERVER_NAME,
+            asexual
+        )
 
         egg_count = rule["egg_count"] or 0
         if egg_count > 0:
