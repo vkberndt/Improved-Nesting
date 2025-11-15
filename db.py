@@ -205,8 +205,9 @@ async def mark_egg_hatched(conn, nest_id: int, player_id: int):
     """
     return await conn.fetchval(sql, nest_id, player_id)
     
-async def create_nest(
+async def start_nest_transaction(
     conn,
+    player_id: int,
     species_id: int,
     mother_id: int,
     father_id: int,
@@ -214,23 +215,28 @@ async def create_nest(
     coords: tuple,
     server_name: str,
     asexual: bool,
+    max_clutches: int,
     image_url: str | None = None
 ):
     """
-    Insert a new nest row and return its id.
+    Atomically bump clutch counter and create a nest.
+    Rolls back if nest creation fails, so clutch counter only increments on success.
+    Returns nest_id if successful, or None if clutch cap reached.
     """
-    x, y, z = coords
-    nest_id = await conn.fetchval("""
-        insert into nests (
-            species_id, mother_id, father_id, creator_id,
-            mother_x, mother_y, mother_z,
-            server_name, asexual, image_url
+    async with conn.transaction():
+        ok = await bump_clutch_counter(conn, player_id, species_id, max_clutches)
+        if not ok:
+            return None  # cap reached, no increment
+
+        nest_id = await create_nest(
+            conn,
+            species_id,
+            mother_id,
+            father_id,
+            creator_id,
+            coords,
+            server_name,
+            asexual,
+            image_url
         )
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-        returning id
-    """,
-        species_id, mother_id, father_id, creator_id,
-        x, y, z,
-        server_name, asexual, image_url
-    )
-    return nest_id
+        return nest_id
