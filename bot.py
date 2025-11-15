@@ -47,16 +47,18 @@ def get_aid_by_discord(discord_id: int) -> Optional[str]:
             return aid.strip()
     return None
 
-# --- RCON helpers ---
+# --- RCON helpers (using async RCONClient) ---
+from rcon import RCONClient  # import your async client implementation
+
 async def get_playerinfo(aid: str):
     """
     Run /playerinfo <AID> and parse out name, agid, dinosaur, growth, and coords.
     """
     try:
-        def _run():
-            with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT, timeout=5) as mcr:
-                return mcr.command(f"/playerinfo {aid}") or ""
-        resp = await asyncio.to_thread(_run)
+        client = RCONClient()
+        await client.connect()
+        resp = await client.command(f"/playerinfo {aid}") or ""
+        await client.close()
     except Exception as e:
         print("[RCON] Error:", e)
         return None
@@ -96,16 +98,22 @@ async def get_playerinfo(aid: str):
     }
 
 async def setattr_growth(aid: str, value: int = 0):
-    def _run():
-        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT, timeout=5) as mcr:
-            mcr.command(f"/setattr {aid} growth {value}")
-    await asyncio.to_thread(_run)
+    try:
+        client = RCONClient()
+        await client.connect()
+        await client.command(f"/setattr {aid} growth {value}")
+        await client.close()
+    except Exception as e:
+        print("[RCON] Error:", e)
 
 async def teleport(aid: str, x: float, y: float, z: float):
-    def _run():
-        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT, timeout=5) as mcr:
-            mcr.command(f"/teleport {aid} {x} {y} {z}")
-    await asyncio.to_thread(_run)
+    try:
+        client = RCONClient()
+        await client.connect()
+        await client.command(f"/teleport {aid} {x} {y} {z}")
+        await client.close()
+    except Exception as e:
+        print("[RCON] Error:", e)
 
 # --- Parent Details Modal ---
 class ParentDetailsModal(discord.ui.Modal):
