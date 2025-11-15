@@ -42,7 +42,7 @@ def get_aid_by_discord(discord_id: int) -> Optional[str]:
     """Lookup Alderon ID for a Discord ID from the sheet."""
     col_discord = aid_map_ws.col_values(1)  # Discord ID column
     col_aid = aid_map_ws.col_values(3)      # Alderon ID column
-    for d_id, aid in zip(col_discord, col_aid):
+    for d_id, aid in zip(col_discord[1:], col_aid[1:]):  # skip header row
         if d_id.strip() == str(discord_id).strip():
             return aid.strip()
     return None
@@ -53,7 +53,8 @@ def load_google_sheet() -> list[dict]:
     col_aid = aid_map_ws.col_values(3)      # Alderon ID column
 
     rows = []
-    for d_id, aid in zip(col_discord, col_aid):
+    # Skip the first row (headers)
+    for d_id, aid in zip(col_discord[1:], col_aid[1:]):
         if d_id.strip() and aid.strip():
             rows.append({
                 "discord_id": d_id.strip(),
