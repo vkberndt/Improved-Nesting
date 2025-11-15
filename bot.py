@@ -134,11 +134,12 @@ async def setattr_growth(aid: str, growth_value: float):
 async def teleport(aid: str, x: float, y: float, z: float):
     """
     Run /teleport (X=<x>,Y=<y>,Z=<z>) to move a player to given coordinates.
+    Note: this server's syntax does NOT include the AID.
     """
     try:
         client = RCONClient()
         await client.connect()
-        # Format exactly as server expects
+        # Format exactly as required
         cmd = f"/teleport (X={x},Y={y},Z={z})"
         resp = await client.command(cmd)
         await client.close()
