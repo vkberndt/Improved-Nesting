@@ -310,28 +310,30 @@ async def anthranest_slash(interaction: discord.Interaction, asexual: bool=False
             return
 
         max_clutches = rule["max_clutches_per_player"] or 0
-        if max_clutches > 0:
-            ok = await db.bump_clutch_counter(conn, interaction.user.id, species_id, max_clutches)
-            if not ok:
-                await interaction.response.send_message(
-                    f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.",
-                    ephemeral=True
-                )
-                return
 
         # ✅ Use RCON coords if available, fallback to (0,0,0)
         coords = pinfo["coords"] if pinfo.get("coords") else (0, 0, 0)
 
-        nest_id = await db.create_nest(
+        # 🔒 Transaction-safe clutch + nest creation
+        nest_id = await db.start_nest_transaction(
             conn,
-            interaction.user.id,
+            interaction.user.id,   # player_id
             species_id,
-            None,
-            None,
+            None,                  # mother_id
+            None,                  # father_id
+            interaction.user.id,   # creator_id
             coords,
             SERVER_NAME,
-            asexual
+            asexual,
+            max_clutches
         )
+
+        if nest_id is None:
+            await interaction.response.send_message(
+                f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.",
+                ephemeral=True
+            )
+            return
 
         egg_count = rule["egg_count"] or 0
         if egg_count > 0:
@@ -344,8 +346,7 @@ async def anthranest_slash(interaction: discord.Interaction, asexual: bool=False
         view = NestView(nest_id, interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view)
         await db.set_nest_message(conn, nest_id, interaction.channel.id, interaction.id)
-
-
+        
 # --- Button interactions via NestView ---
 class NestView(discord.ui.View):
     def __init__(self, nest_id: int, creator_id: int):
