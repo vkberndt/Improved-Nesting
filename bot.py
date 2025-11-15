@@ -119,14 +119,23 @@ class ParentDetailsModal(discord.ui.Modal):
         self.nest_id = nest_id
         self.role = role
 
-        # Add text inputs for parent details
-        self.add_item(discord.ui.TextInput(label="Dino Name", required=False))
-        self.add_item(discord.ui.TextInput(label="Subspecies", required=False))
-        self.add_item(discord.ui.TextInput(label="Dominant Skin", required=False))
-        self.add_item(discord.ui.TextInput(label="Recessive Skin", required=False))
-        self.add_item(discord.ui.TextInput(label="Immunity Gene", required=False))
-        self.add_item(discord.ui.TextInput(label="Character Sheet URL", required=False))
-        self.add_item(discord.ui.TextInput(label="Mutations", required=False))
+        # Define text inputs as attributes
+        self.dino_name = discord.ui.TextInput(label="Dino Name", required=False)
+        self.subspecies = discord.ui.TextInput(label="Subspecies", required=False)
+        self.dominant_skin = discord.ui.TextInput(label="Dominant Skin", required=False)
+        self.recessive_skin = discord.ui.TextInput(label="Recessive Skin", required=False)
+        self.immunity_gene = discord.ui.TextInput(label="Immunity Gene", required=False)
+        self.character_sheet_url = discord.ui.TextInput(label="Character Sheet URL", required=False)
+        self.mutations = discord.ui.TextInput(label="Mutations", required=False)
+
+        # Add them to the modal
+        self.add_item(self.dino_name)
+        self.add_item(self.subspecies)
+        self.add_item(self.dominant_skin)
+        self.add_item(self.recessive_skin)
+        self.add_item(self.immunity_gene)
+        self.add_item(self.character_sheet_url)
+        self.add_item(self.mutations)
 
     async def on_submit(self, interaction: discord.Interaction):
         async with db.POOL.acquire() as conn:
@@ -147,14 +156,16 @@ class ParentDetailsModal(discord.ui.Modal):
                   immunity_gene = excluded.immunity_gene,
                   character_sheet_url = excluded.character_sheet_url,
                   mutations = excluded.mutations
-            """, self.nest_id, self.role,
-                 self.children[0].value,  # Dino Name
-                 self.children[1].value,  # Subspecies
-                 self.children[2].value,  # Dominant Skin
-                 self.children[3].value,  # Recessive Skin
-                 self.children[4].value,  # Immunity Gene
-                 self.children[5].value,  # Character Sheet URL
-                 self.children[6].value)  # Mutations
+            """,
+                self.nest_id, self.role,
+                self.dino_name.value,
+                self.subspecies.value,
+                self.dominant_skin.value,
+                self.recessive_skin.value,
+                self.immunity_gene.value,
+                self.character_sheet_url.value,
+                self.mutations.value
+            )
 
             # If this is the mother, also update nest coords from RCON
             if self.role == "mother":
@@ -200,10 +211,19 @@ async def render_nest_card(conn, nest_id: int):
         description=f"Season: {nest['season_name']}\nStatus: {nest['status'].upper()}",
         color=discord.Color.green() if nest['status'] == "open" else discord.Color.red()
     )
-    embed.add_field(name="Eggs Available", value=str(sum(1 for e in eggs if not e['claimed_by_player_id'])), inline=True)
-    embed.add_field(name="Claimants", value=", ".join(claimants) if claimants else "None yet", inline=True)
+    embed.add_field(
+        name="Eggs Available",
+        value=str(sum(1 for e in eggs if not e['claimed_by_player_id'])),
+        inline=True
+    )
+    embed.add_field(
+        name="Claimants",
+        value=", ".join(claimants) if claimants else "None yet",
+        inline=True
+    )
     embed.set_footer(text=f"Server: {nest['server_name']} | Expires {nest['expires_at']}")
 
+    # 👇 Species image or fallback
     if nest["image_url"]:
         embed.set_image(url=nest["image_url"])
     else:
@@ -225,16 +245,40 @@ async def render_nest_card(conn, nest_id: int):
         )
         if row['character_sheet_url']:
             block += f"\n[Character Sheet]({row['character_sheet_url']})"
-        embed.add_field(name=f"{row['parent_role'].capitalize()} Details", value=block, inline=False)
+        embed.add_field(
+            name=f"{row['parent_role'].capitalize()} Details",
+            value=block,
+            inline=False
+        )
 
     # Buttons
     view = discord.ui.View()
-    view.add_item(discord.ui.Button(label="🥚 Claim Egg", style=discord.ButtonStyle.primary, custom_id=f"claim:{nest_id}"))
-    view.add_item(discord.ui.Button(label="👩 Mother Details", style=discord.ButtonStyle.secondary, custom_id=f"parent:{nest_id}:mother"))
-    view.add_item(discord.ui.Button(label="👨 Father Details", style=discord.ButtonStyle.secondary, custom_id=f"parent:{nest_id}:father"))
-    view.add_item(discord.ui.Button(label="🐣 Hatch", style=discord.ButtonStyle.success, custom_id=f"hatch:{nest_id}"))
-    view.add_item(discord.ui.Button(label="❌ Close", style=discord.ButtonStyle.danger,
-                                    custom_id=f"close:{nest_id}:{nest['created_by_player_id']}"))
+    view.add_item(discord.ui.Button(
+        label="🥚 Claim Egg",
+        style=discord.ButtonStyle.primary,
+        custom_id=f"claim:{nest_id}"
+    ))
+    view.add_item(discord.ui.Button(
+        label="👩 Mother Details",
+        style=discord.ButtonStyle.secondary,
+        custom_id=f"parent:{nest_id}:mother"
+    ))
+    view.add_item(discord.ui.Button(
+        label="👨 Father Details",
+        style=discord.ButtonStyle.secondary,
+        custom_id=f"parent:{nest_id}:father"
+    ))
+    view.add_item(discord.ui.Button(
+        label="🐣 Hatch",
+        style=discord.ButtonStyle.success,
+        custom_id=f"hatch:{nest_id}"
+    ))
+    view.add_item(discord.ui.Button(
+        label="❌ Close",
+        style=discord.ButtonStyle.danger,
+        custom_id=f"close:{nest_id}:{nest['created_by_player_id']}"
+    ))
+
     return embed, view
 
 # --- Slash command: /setseason (admin only) ---

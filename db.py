@@ -119,8 +119,21 @@ async def expire_nests(conn):
 async def claim_first_egg(conn, nest_id: int, player_id: int):
     """
     Claim the first available egg in a nest for a player.
-    Returns the egg ID or None if no eggs left.
+    Returns the egg ID or None if no eggs left, or raises if parents incomplete.
     """
+
+    # 🔒 Check parent requirements before allowing claim
+    nest = await conn.fetchrow(
+        "select father_id, asexual from nests where id=$1", nest_id
+    )
+    if not nest:
+        return None  # nest not found
+
+    if not nest["asexual"] and nest["father_id"] is None:
+        # Sexual nest but no father registered yet
+        raise ValueError("Eggs cannot be claimed until a father is registered for this nest.")
+
+    # ✅ Proceed with claim if requirements satisfied
     sql = """
     update eggs
     set claimed_by_player_id = $2, claimed_at = now()
