@@ -1,5 +1,6 @@
 import os
 import asyncpg
+import ssl
 
 POOL = None
 
@@ -14,8 +15,11 @@ async def init_db_pool():
     if not dsn:
         raise RuntimeError("DATABASE_URL or DB_DSN environment variable not set")
 
+    ssl_context = ssl.create_default_context(cafile="/app/prod-ca-2021.crt")
+
     POOL = await asyncpg.create_pool(
         dsn=dsn,
+        ssl=ssl_context,
         min_size=2,
         max_size=10,
         timeout=10,
