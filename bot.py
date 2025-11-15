@@ -477,9 +477,24 @@ class NestView(discord.ui.View):
     @discord.ui.button(label="🥚 Claim Egg", style=discord.ButtonStyle.primary)
     async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         async with db.POOL.acquire() as conn:
-            egg_id = await db.claim_first_egg(conn, self.nest_id, interaction.user.id)
+            try:
+                egg_id = await db.claim_first_egg(conn, self.nest_id, interaction.user.id)
+            except ValueError as e:
+                # Father not registered yet
+                await interaction.response.send_message(str(e), ephemeral=True)
+                return
+
+            if egg_id is None:
+                await interaction.response.send_message(
+                    "❌ No eggs available to claim in this nest.",
+                    ephemeral=True
+                )
+                return
+
+            # Refresh embed after claim
             embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
+            await interaction.followup.send(f"🥚 You successfully claimed egg #{egg_id}!", ephemeral=True)
 
     @discord.ui.button(label="❌ Unclaim Egg", style=discord.ButtonStyle.secondary)
     async def unclaim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -491,7 +506,10 @@ class NestView(discord.ui.View):
             await interaction.response.edit_message(embed=embed, view=view)
             await interaction.followup.send(f"You released your claim on egg {slot_index}.", ephemeral=True)
         else:
-            await interaction.response.send_message("You don’t currently have a claimed egg in this nest.", ephemeral=True)
+            await interaction.response.send_message(
+                "You don’t currently have a claimed egg in this nest.",
+                ephemeral=True
+            )
 
     @discord.ui.button(label="🐣 Hatch", style=discord.ButtonStyle.success)
     async def hatch_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -515,9 +533,15 @@ class NestView(discord.ui.View):
                 return
 
         if egg_id:
-            await interaction.response.send_message(f"You hatched from egg {egg_id} and were teleported to the nest!", ephemeral=True)
+            await interaction.response.send_message(
+                f"🐣 You hatched from egg {egg_id} and were teleported to the nest!",
+                ephemeral=True
+            )
         else:
-            await interaction.response.send_message("You don’t have a claimed egg in this nest.", ephemeral=True)
+            await interaction.response.send_message(
+                "You don’t have a claimed egg in this nest.",
+                ephemeral=True
+            )
 
     @discord.ui.button(label="👩 Mother Details", style=discord.ButtonStyle.secondary)
     async def mother_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -526,18 +550,22 @@ class NestView(discord.ui.View):
     @discord.ui.button(label="👨 Father Details", style=discord.ButtonStyle.secondary)
     async def father_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ParentDetailsModal(self.nest_id, role="father"))
+        # Optional: confirm father registration after modal submission in ParentDetailsModal
 
     @discord.ui.button(label="❌ Close", style=discord.ButtonStyle.danger)
     async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.creator_id:
-            await interaction.response.send_message("Only the nest creator can close this nest.", ephemeral=True)
+            await interaction.response.send_message(
+                "Only the nest creator can close this nest.",
+                ephemeral=True
+            )
             return
 
         async with db.POOL.acquire() as conn:
             await conn.execute("update nests set status='expired' where id=$1", self.nest_id)
             embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.response.edit_message(embed=embed, view=view)
-
+            await interaction.followup.send("Nest has been closed.", ephemeral=True)
 # --- Background Tasks ---
 async def nest_expiry_task():
     await bot.wait_until_ready()
