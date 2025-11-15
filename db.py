@@ -77,7 +77,7 @@ async def get_active_rules(conn, species_id: int):
 
 
 async def create_nest(conn, species_id: int, mother_id: int, father_id: int,
-                      coords: tuple, server_name: str, asexual: bool):
+                      creator_id: int, coords: tuple, server_name: str, asexual: bool):
     """
     Create a nest record and return its ID.
     """
@@ -86,11 +86,11 @@ async def create_nest(conn, species_id: int, mother_id: int, father_id: int,
                        created_by_player_id, mother_x, mother_y, mother_z,
                        server_name, asexual, created_at, expires_at, status)
     values ((select season_id from active_season), $1, $2, $3,
-            $2, $4, $5, $6, $7, $8, now(), now() + interval '30 minutes', 'open')
+            $4, $5, $6, $7, $8, $9, now(), now() + interval '30 minutes', 'open')
     returning id
     """
     return await conn.fetchval(sql, species_id, mother_id, father_id,
-                               coords[0], coords[1], coords[2],
+                               creator_id, coords[0], coords[1], coords[2],
                                server_name, asexual)
 
 
