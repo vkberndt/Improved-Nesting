@@ -48,41 +48,65 @@ def get_aid_by_discord(discord_id: int) -> Optional[str]:
     return None
 
 # --- RCON helpers ---
-def _parse_species(text: str):
-    m = re.search(r"Dinosaur:\s*([^/]+?)(?:\s*/|$)", text, flags=re.IGNORECASE)
-    return m.group(1).strip().lower() if m else None
-
-def _parse_position(text: str):
-    m = re.search(r"Location:\s*\(X=([-\d\.]+)\s*Y=([-\d\.]+)\s*Z=([-\d\.]+)\)", text)
-    if m:
-        return float(m.group(1)), float(m.group(2)), float(m.group(3))
-    return (0.0, 0.0, 0.0)
-
 async def get_playerinfo(aid: str):
+    """
+    Run /playerinfo <AID> and parse out name, agid, dinosaur, growth, and coords.
+    """
     try:
         def _run():
-            with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
-                return mcr.command(f"playerinfo {aid}") or ""
+            with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT, timeout=5) as mcr:
+                return mcr.command(f"/playerinfo {aid}") or ""
         resp = await asyncio.to_thread(_run)
     except Exception as e:
         print("[RCON] Error:", e)
         return None
-    species = _parse_species(resp)
-    coords = _parse_position(resp)
-    return {"species_code": species, "coords": coords}
+
+    resp_clean = re.sub(r"^\(playerinfo [^)]+\):\s*", "", resp)
+
+    fields: dict[str, str] = {}
+    for segment in resp_clean.split(" / "):
+        if ":" not in segment:
+            continue
+        key, val = map(str.strip, segment.split(":", 1))
+        fields[key.lower()] = val
+
+    name     = fields.get("name")
+    agid     = fields.get("agid")
+    dinosaur = fields.get("dinosaur")
+    growth   = fields.get("growth")
+    role     = fields.get("role")
+    marks    = fields.get("marks")
+    location = fields.get("location")
+
+    coords = None
+    if location:
+        m = re.search(r"X=([-\d\.]+)\s*Y=([-\d\.]+)\s*Z=([-\d\.]+)", location)
+        if m:
+            coords = (float(m.group(1)), float(m.group(2)), float(m.group(3)))
+
+    return {
+        "name": name,
+        "agid": agid,
+        "species_code": dinosaur.lower() if dinosaur else None,
+        "growth": growth,
+        "role": role,
+        "marks": marks,
+        "coords": coords,
+        "raw": resp_clean,
+    }
 
 async def setattr_growth(aid: str, value: int = 0):
     def _run():
-        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
-            mcr.command(f"setattr {aid} growth {value}")
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT, timeout=5) as mcr:
+            mcr.command(f"/setattr {aid} growth {value}")
     await asyncio.to_thread(_run)
 
 async def teleport(aid: str, x: float, y: float, z: float):
     def _run():
-        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT) as mcr:
-            mcr.command(f"teleport {aid} {x} {y} {z}")
+        with MCRcon(RCON_HOST, RCON_PASSWORD, port=RCON_PORT, timeout=5) as mcr:
+            mcr.command(f"/teleport {aid} {x} {y} {z}")
     await asyncio.to_thread(_run)
-        
+
 # --- Parent Details Modal ---
 class ParentDetailsModal(discord.ui.Modal):
     def __init__(self, nest_id: int, role: str):
