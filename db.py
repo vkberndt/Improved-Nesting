@@ -132,9 +132,17 @@ async def unclaim_egg(conn, nest_id: int, player_id: int):
 
 async def bump_clutch_counter(conn, player_id: int, species_id: int, max_clutches: int):
     """
-    Increment clutches_started for a player/species in the active season.
+    Ensure a stats row exists, then increment clutches_started.
     Returns True if incremented, False if cap reached.
     """
+    # Ensure row exists with clutches_started=0
+    await conn.execute("""
+        insert into player_season_species_stats (season_id, player_id, species_id, clutches_started)
+        values ((select season_id from active_season), $1, $2, 0)
+        on conflict (season_id, player_id, species_id) do nothing
+    """, player_id, species_id)
+
+    # Now try to increment
     sql = """
     update player_season_species_stats
     set clutches_started = clutches_started + 1
