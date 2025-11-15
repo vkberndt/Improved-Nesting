@@ -112,30 +112,30 @@ async def get_playerinfo(aid: str):
         "raw": resp_clean,
     }
 
-# --- Parent Details Modal ---
+# --- Parent Details Modal (Basic Info) ---
 class ParentDetailsModal(discord.ui.Modal):
     def __init__(self, nest_id: int, role: str):
         super().__init__(title=f"{role.capitalize()} Details")
         self.nest_id = nest_id
         self.role = role
 
-        # Define text inputs as attributes
+        # ✅ Max 5 inputs allowed per modal
         self.dino_name = discord.ui.TextInput(label="Dino Name", required=False)
         self.subspecies = discord.ui.TextInput(label="Subspecies", required=False)
-        self.dominant_skin = discord.ui.TextInput(label="Dominant Skin", required=False)
-        self.recessive_skin = discord.ui.TextInput(label="Recessive Skin", required=False)
+        self.skins = discord.ui.TextInput(
+            label="Skins (Dominant / Recessive)",
+            required=False,
+            placeholder="Dominant / Recessive"
+        )
         self.immunity_gene = discord.ui.TextInput(label="Immunity Gene", required=False)
         self.character_sheet_url = discord.ui.TextInput(label="Character Sheet URL", required=False)
-        self.mutations = discord.ui.TextInput(label="Mutations", required=False)
 
         # Add them to the modal
         self.add_item(self.dino_name)
         self.add_item(self.subspecies)
-        self.add_item(self.dominant_skin)
-        self.add_item(self.recessive_skin)
+        self.add_item(self.skins)
         self.add_item(self.immunity_gene)
         self.add_item(self.character_sheet_url)
-        self.add_item(self.mutations)
 
     async def on_submit(self, interaction: discord.Interaction):
         async with db.POOL.acquire() as conn:
@@ -144,9 +144,9 @@ class ParentDetailsModal(discord.ui.Modal):
                 insert into nest_parent_details (
                   nest_id, parent_role, dino_name, subspecies,
                   dominant_skin, recessive_skin, immunity_gene,
-                  character_sheet_url, mutations
+                  character_sheet_url
                 ) values (
-                  $1, $2, $3, $4, $5, $6, $7, $8, $9
+                  $1, $2, $3, $4, $5, $6, $7, $8
                 )
                 on conflict (nest_id, parent_role) do update set
                   dino_name = excluded.dino_name,
@@ -154,25 +154,25 @@ class ParentDetailsModal(discord.ui.Modal):
                   dominant_skin = excluded.dominant_skin,
                   recessive_skin = excluded.recessive_skin,
                   immunity_gene = excluded.immunity_gene,
-                  character_sheet_url = excluded.character_sheet_url,
-                  mutations = excluded.mutations
+                  character_sheet_url = excluded.character_sheet_url
             """,
-                self.nest_id, self.role,
+                self.nest_id,
+                self.role,
                 self.dino_name.value,
                 self.subspecies.value,
-                self.dominant_skin.value,
-                self.recessive_skin.value,
+                # Split skins input into dominant/recessive parts
+                (self.skins.value.split("/", 1)[0].strip() if self.skins.value else None),
+                (self.skins.value.split("/", 1)[1].strip() if self.skins.value and "/" in self.skins.value else None),
                 self.immunity_gene.value,
-                self.character_sheet_url.value,
-                self.mutations.value
+                self.character_sheet_url.value
             )
 
-            # If this is the mother, also update nest coords from RCON
+            # If this is the mother, update nest coords from RCON
             if self.role == "mother":
                 alderon_id = get_aid_by_discord(interaction.user.id)
                 if alderon_id:
                     pinfo = await get_playerinfo(alderon_id)
-                    if pinfo and pinfo["coords"]:
+                    if pinfo and pinfo.get("coords"):
                         x, y, z = pinfo["coords"]
                         await conn.execute("""
                             update nests
@@ -225,7 +225,8 @@ async def render_nest_card(conn, nest_id: int):
 
     # 👇 Species image or fallback
     if nest["image_url"]:
-        embed.set_image(url=nest["image_url"])
+        clean_url = nest["image_url"].strip()  # ensure no hidden spaces/newlines
+        embed.set_image(url=clean_url)         # full-width image below description
     else:
         embed.add_field(name="Image", value="No image available", inline=False)
 
