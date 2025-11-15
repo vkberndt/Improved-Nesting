@@ -133,13 +133,13 @@ async def setattr_growth(aid: str, growth_value: float):
 
 async def teleport(aid: str, x, y, z):
     """
-    Run /teleport (X=<x>,Y=<y>,Z=<z>) with full precision.
+    Run /teleport <AID> (X=<x>,Y=<y>,Z=<z>) to move a player to given coordinates.
     """
     try:
         client = RCONClient()
         await client.connect()
-        # Use str() to preserve exact numeric precision
-        cmd = f"/teleport (X={x},Y={y},Z={z})"
+        # Preserve full precision by using str() directly
+        cmd = f"/teleport {aid} (X={x},Y={y},Z={z})"
         resp = await client.command(cmd)
         await client.close()
         print(f"[RCON] {cmd} -> {resp}")
@@ -547,7 +547,7 @@ class NestView(discord.ui.View):
 
             # Ensure coords are present
             if nest["mother_x"] is not None and nest["mother_y"] is not None and nest["mother_z"] is not None:
-                # Use str() to preserve full precision from the DB
+                # Preserve full precision by using str() directly
                 x = str(nest["mother_x"])
                 y = str(nest["mother_y"])
                 z = str(nest["mother_z"])
@@ -555,7 +555,7 @@ class NestView(discord.ui.View):
                 # Reset growth to hatchling
                 await setattr_growth(alderon_id, 0)
 
-                # Teleport to mother’s nest coordinates
+                # Teleport to mother’s nest coordinates (with AID included)
                 resp = await teleport(alderon_id, x, y, z)
                 print(f"[DEBUG] Teleport response: {resp}")
 
