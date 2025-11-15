@@ -160,7 +160,6 @@ class ParentDetailsModal(discord.ui.Modal):
                 self.role,
                 self.dino_name.value,
                 self.subspecies.value,
-                # Split skins input into dominant/recessive parts
                 (self.skins.value.split("/", 1)[0].strip() if self.skins.value else None),
                 (self.skins.value.split("/", 1)[1].strip() if self.skins.value and "/" in self.skins.value else None),
                 self.immunity_gene.value,
@@ -180,6 +179,11 @@ class ParentDetailsModal(discord.ui.Modal):
                             where id=$4
                         """, x, y, z, self.nest_id)
 
+            # Refresh the nest card so everyone sees updated parent info
+            embed, view = await render_nest_card(conn, self.nest_id)
+            await interaction.message.edit(embed=embed, view=view)
+
+        # Private confirmation for the submitting player
         await interaction.response.send_message(
             f"{self.role.capitalize()} details saved!", ephemeral=True
         )
