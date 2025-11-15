@@ -130,7 +130,6 @@ class ParentDetailsModal(discord.ui.Modal):
         self.immunity_gene = discord.ui.TextInput(label="Immunity Gene", required=False)
         self.character_sheet_url = discord.ui.TextInput(label="Character Sheet URL", required=False)
 
-        # Add them to the modal
         self.add_item(self.dino_name)
         self.add_item(self.subspecies)
         self.add_item(self.skins)
@@ -139,6 +138,17 @@ class ParentDetailsModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         async with db.POOL.acquire() as conn:
+            # Growth requirement check
+            alderon_id = get_aid_by_discord(interaction.user.id)
+            if alderon_id:
+                pinfo = await get_playerinfo(alderon_id)
+                if not pinfo or pinfo.get("growth", 0) < 0.75:
+                    await interaction.response.send_message(
+                        "❌ You must be at least Sub Adult to parent a nest",
+                        ephemeral=True
+                    )
+                    return
+
             # Save parent details
             await conn.execute("""
                 insert into nest_parent_details (
@@ -167,19 +177,15 @@ class ParentDetailsModal(discord.ui.Modal):
             )
 
             # If this is the mother, update nest coords from RCON
-            if self.role == "mother":
-                alderon_id = get_aid_by_discord(interaction.user.id)
-                if alderon_id:
-                    pinfo = await get_playerinfo(alderon_id)
-                    if pinfo and pinfo.get("coords"):
-                        x, y, z = pinfo["coords"]
-                        await conn.execute("""
-                            update nests
-                            set mother_x=$1, mother_y=$2, mother_z=$3
-                            where id=$4
-                        """, x, y, z, self.nest_id)
+            if self.role == "mother" and pinfo and pinfo.get("coords"):
+                x, y, z = pinfo["coords"]
+                await conn.execute("""
+                    update nests
+                    set mother_x=$1, mother_y=$2, mother_z=$3
+                    where id=$4
+                """, x, y, z, self.nest_id)
 
-            # Refresh the nest card so everyone sees updated parent info
+            # 🔄 Refresh the nest card so everyone sees updated parent info
             embed, view = await render_nest_card(conn, self.nest_id)
             await interaction.message.edit(embed=embed, view=view)
 
@@ -317,84 +323,104 @@ async def setseason(interaction: discord.Interaction, season: app_commands.Choic
         await interaction.followup.send(f"No season named {season.value} found", ephemeral=True)
 
 
-# --- Slash command: /anthranest ---
-@tree.command(name="anthranest", description="Create a nest")
-@app_commands.describe(asexual="Whether the nest is asexual")
-async def anthranest_slash(interaction: discord.Interaction, asexual: bool=False):
-    async with db.POOL.acquire() as conn:
-        alderon_id = get_aid_by_discord(interaction.user.id)
-        if not alderon_id:
-            await interaction.response.send_message(
-                "No Alderon ID registered for you. Please register first.",
-                ephemeral=True
-            )
-            return
+# --- UX rendering ---
+async def render_nest_card(conn, nest_id: int):
+    nest = await conn.fetchrow("""
+        select n.id, n.status, n.expires_at, n.server_name,
+               n.created_by_player_id,
+               sp.name as species_name, sp.image_url as species_image_url,
+               n.image_url as nest_image_url,
+               s.name as season_name
+        from nests n
+        join species sp on sp.id = n.species_id
+        join seasons s on s.id = n.season_id
+        where n.id = $1
+    """, nest_id)
 
-        # ✅ Pull species + coords from RCON
-        pinfo = await get_playerinfo(alderon_id)
-        if not pinfo or not pinfo["species_code"]:
-            await interaction.response.send_message(
-                "Could not determine your species from RCON.",
-                ephemeral=True
-            )
-            return
+    eggs = await conn.fetch("""
+        select slot_index, claimed_by_player_id
+        from eggs
+        where nest_id = $1
+        order by slot_index
+    """, nest_id)
 
-        species_row = await conn.fetchrow(
-            "select id, name from species where code=$1", pinfo["species_code"]
+    claimants = [f"<@{row['claimed_by_player_id']}>" for row in eggs if row['claimed_by_player_id']]
+
+    embed = discord.Embed(
+        title=f"{nest['species_name']} Nest",
+        description=f"Season: {nest['season_name']}\nStatus: {nest['status'].upper()}",
+        color=discord.Color.green() if nest['status'] == "open" else discord.Color.red()
+    )
+    embed.add_field(
+        name="Eggs Available",
+        value=str(sum(1 for e in eggs if not e['claimed_by_player_id'])),
+        inline=True
+    )
+    embed.add_field(
+        name="Claimants",
+        value=", ".join(claimants) if claimants else "None yet",
+        inline=True
+    )
+    embed.set_footer(text=f"Server: {nest['server_name']} | Expires {nest['expires_at']}")
+
+    # 👇 Prefer nest image if supplied, else species default
+    chosen_image = (nest["nest_image_url"] or nest["species_image_url"])
+    if chosen_image:
+        embed.set_image(url=chosen_image.strip())
+    else:
+        embed.add_field(name="Image", value="No image available", inline=False)
+
+    # Parent details
+    details = await conn.fetch("""
+        select parent_role, dino_name, subspecies, dominant_skin, recessive_skin,
+               immunity_gene, character_sheet_url
+        from nest_parent_details
+        where nest_id = $1
+    """, nest_id)
+    for row in details:
+        block = (
+            f"**Name:** {row['dino_name'] or '—'}\n"
+            f"**Subspecies:** {row['subspecies'] or '—'}\n"
+            f"**Skins:** {row['dominant_skin'] or '—'} / {row['recessive_skin'] or '—'}\n"
+            f"**Immunity:** {row['immunity_gene'] or '—'}\n"
         )
-        if not species_row:
-            await interaction.response.send_message(
-                f"Species {pinfo['species_code']} not recognized in database.",
-                ephemeral=True
-            )
-            return
-        species_id = species_row["id"]
-
-        rule = await db.get_active_rules(conn, species_id)
-        if not rule or not rule["can_nest"]:
-            await interaction.response.send_message(
-                f"Nesting for {species_row['name']} is disabled this season.",
-                ephemeral=True
-            )
-            return
-
-        max_clutches = rule["max_clutches_per_player"] or 0
-
-        # ✅ Use RCON coords if available, fallback to (0,0,0)
-        coords = pinfo["coords"] if pinfo.get("coords") else (0, 0, 0)
-
-        # 🔒 Transaction-safe clutch + nest creation
-        nest_id = await db.start_nest_transaction(
-            conn,
-            interaction.user.id,   # player_id
-            species_id,
-            interaction.user.id,   # mother_id always = invoking player
-            None if asexual else None,  # father_id stays None for now
-            interaction.user.id,   # creator_id
-            coords,
-            SERVER_NAME,
-            asexual,
-            max_clutches
+        if row['character_sheet_url']:
+            block += f"\n[Character Sheet]({row['character_sheet_url']})"
+        embed.add_field(
+            name=f"{row['parent_role'].capitalize()} Details",
+            value=block,
+            inline=False
         )
 
-        if nest_id is None:
-            await interaction.response.send_message(
-                f"You have reached the maximum of {max_clutches} clutches for {species_row['name']} this season.",
-                ephemeral=True
-            )
-            return
+    # Buttons
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(
+        label="🥚 Claim Egg",
+        style=discord.ButtonStyle.primary,
+        custom_id=f"claim:{nest_id}"
+    ))
+    view.add_item(discord.ui.Button(
+        label="👩 Mother Details",
+        style=discord.ButtonStyle.secondary,
+        custom_id=f"parent:{nest_id}:mother"
+    ))
+    view.add_item(discord.ui.Button(
+        label="👨 Father Details",
+        style=discord.ButtonStyle.secondary,
+        custom_id=f"parent:{nest_id}:father"
+    ))
+    view.add_item(discord.ui.Button(
+        label="🐣 Hatch",
+        style=discord.ButtonStyle.success,
+        custom_id=f"hatch:{nest_id}"
+    ))
+    view.add_item(discord.ui.Button(
+        label="❌ Close",
+        style=discord.ButtonStyle.danger,
+        custom_id=f"close:{nest_id}:{nest['created_by_player_id']}"
+    ))
 
-        egg_count = rule["egg_count"] or 0
-        if egg_count > 0:
-            await conn.execute(
-                "insert into eggs (nest_id, slot_index) select $1, generate_series(1, $2)",
-                nest_id, egg_count
-            )
-
-        embed, _ = await render_nest_card(conn, nest_id)
-        view = NestView(nest_id, interaction.user.id)
-        await interaction.response.send_message(embed=embed, view=view)
-        await db.set_nest_message(conn, nest_id, interaction.channel.id, interaction.id)
+    return embed, view
         
 # --- Button interactions via NestView ---
 class NestView(discord.ui.View):
