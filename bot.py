@@ -47,8 +47,8 @@ def get_aid_by_discord(discord_id: int) -> Optional[str]:
             return aid.strip()
     return None
 
-# --- RCON helpers (using async RCONClient) ---
-from rcon import RCONClient  # import your async client implementation
+# --- RCON helpers ---
+from rcon import RCONClient
 
 async def get_playerinfo(aid: str):
     """
@@ -74,7 +74,7 @@ async def get_playerinfo(aid: str):
 
     name     = fields.get("name")
     agid     = fields.get("agid")
-    dinosaur = fields.get("dinosaur")
+    dinosaur = fields.get("dinosaur")  # preserve case
     growth   = fields.get("growth")
     role     = fields.get("role")
     marks    = fields.get("marks")
@@ -89,31 +89,13 @@ async def get_playerinfo(aid: str):
     return {
         "name": name,
         "agid": agid,
-        "species_code": dinosaur.lower() if dinosaur else None,
+        "species_code": dinosaur if dinosaur else None,  # no lowercasing
         "growth": growth,
         "role": role,
         "marks": marks,
         "coords": coords,
         "raw": resp_clean,
     }
-
-async def setattr_growth(aid: str, value: int = 0):
-    try:
-        client = RCONClient()
-        await client.connect()
-        await client.command(f"/setattr {aid} growth {value}")
-        await client.close()
-    except Exception as e:
-        print("[RCON] Error:", e)
-
-async def teleport(aid: str, x: float, y: float, z: float):
-    try:
-        client = RCONClient()
-        await client.connect()
-        await client.command(f"/teleport {aid} {x} {y} {z}")
-        await client.close()
-    except Exception as e:
-        print("[RCON] Error:", e)
 
 # --- Parent Details Modal ---
 class ParentDetailsModal(discord.ui.Modal):
